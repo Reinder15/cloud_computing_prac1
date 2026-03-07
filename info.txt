@@ -164,9 +164,97 @@ touch /var/www/html/wp-config.php
 
 STAP 8: WORDPRESS IN VM (KLANT 2 - HA)
 # Download Ubuntu/Debian ISO
-# Maak VM via GUI met minimaal 2GB RAM
+# Maak VM met minimaal 2GB RAM
 # Installeer OS manueel
-# Installeer WordPress zoals bij LXC
+# Installeer wordpress manueel zoals in LXC, maar dan op VM
+
+Op node1:
+cd /var/lib/vz/template/iso
+wget https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-amd64.iso
+
+# Optie A: MANUELE INSTALLATIE (simpel en betrouwbaar)
+# https://pve.proxmox.com/pve-docs/qm.1.html
+qm create 200 \
+  --name wordpress-crm-prod \
+  --memory 4096 \
+  --cores 2 \
+  --net0 virtio,bridge=vmbr0 \
+  --scsihw virtio-scsi-pci \
+  --scsi0 ceph-pool:20 \
+  --ide2 local:iso/ubuntu-22.04.5-live-server-amd64.iso,media=cdrom \
+  --boot "order=scsi0;ide2" \
+  --ostype l26 \
+  --onboot 1
+
+qm start 200
+
+# Nu installeren via Proxmox GUI Console:
+# 1. Proxmox GUI -> VM 200 -> Console
+# 2. Volg Ubuntu installer:
+#    - Language: English
+#    - Keyboard: English (US)
+#    - Install Ubuntu Server
+#    - Network: Manual
+#      - Subnet: 10.24.38.0/24
+#      - Address: 10.24.38.30
+#      - Gateway: 10.24.38.1
+#      - Name servers: 8.8.8.8
+#    - Proxy: (leeg)
+#    - Mirror: (default)
+#    - Storage: Use entire disk
+#    - Profile:
+#      - Name: client
+#      - Server: wordpress-crm-prod
+#      - Username: client
+#      - Password: SecurePass123!   
+#    - SSH: Install OpenSSH server (✓)
+#    - Snaps: (skip)
+#    - Reboot
+# 3. Na reboot: ssh client@10.24.38.30
+
+# Installeer WordPress in VM (na SSH login):
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y apache2 mysql-server php libapache2-mod-php \
+    php-mysql php-curl php-gd php-mbstring php-xml php-xmlrpc php-zip curl wget
+
+sudo mysql
+# CREATE DATABASE wordpress_db;
+# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'SecurePass123!';
+# GRANT ALL PRIVILEGES ON wordpress_db.* TO 'wpuser'@'localhost';
+# FLUSH PRIVILEGES;
+# EXIT;
+
+cd /tmp
+wget https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+sudo rm -f /var/www/html/index.html
+sudo cp -r wordpress/* /var/www/html/
+sudo chown -R www-data:www-data /var/www/html/
+sudo chmod -R 755 /var/www/html/
+
+cd /var/www/html
+sudo cp wp-config-sample.php wp-config.php
+sudo nano wp-config.php
+# Pas aan: DB_NAME=wordpress_db, DB_USER=wpuser, DB_PASSWORD=SecurePass123!
+
+sudo systemctl restart apache2
+
+# Test: http://10.24.38.30
+
+
+# Optie B: CLOUD-INIT (geautomatiseerd, kan SSH issues hebben)
+# wget https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
+# qm importdisk 200 jammy-server-cloudimg-amd64.img ceph-pool
+# qm set 200 --scsi0 ceph-pool:vm-200-disk-0
+# qm set 200 --ide2 ceph-pool:cloudinit
+# qm set 200 --boot c --bootdisk scsi0
+# qm set 200 --ipconfig0 ip=10.24.38.30/24,gw=10.24.38.1
+# qm set 200 --nameserver 8.8.8.8
+# qm set 200 --ciuser admin
+# qm set 200 --cipassword SecurePass123!
+# qm start 200
+
+
 
 STAP 9: BASH SCRIPTS MAKEN
 # Maak install-wordpress-lxc.sh
