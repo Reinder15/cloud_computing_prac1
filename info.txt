@@ -1,0 +1,217 @@
+
+subnet: 10.24.38.x/24
+VLAN: 2438
+Default Gateway: 10.24.38.1/24
+
+35448901 (354489-vm1):
+hostname: node1.klein-mkb-host.nl
+IP adres: 10.24.38.2
+root - Strike1023
+
+Tailscale entry: https://10.24.38.2:8006/#v1:0:18:4:::::::
+root - Strike1023
+
+
+35448902 (354489-vm2):
+hostname: node2.klein-mkb-host.nl
+IP adres: 10.24.38.3
+root - Strike1023
+
+35448903 (354489-vm3):
+hostname: node3.klein-mkb-host.nl
+IP adres: 10.24.38.4
+root - Strike1023
+
+
+Voor setup:
+1. ls /etc/apt/sources.list.d/
+Output zou moeten zijn:
+ceph.sources  debian.sources  pve-enterprise.sources
+2. rm /etc/apt/sources.list.d/pve-enterprise.sources
+3. rm /etc/apt/sources.list.d/ceph.sources
+3. apt update
+4. nano /etc/hosts
+Voeg toe:
+127.0.0.1 localhost.localdomain localhost
+10.24.38.2 node1.klein-mkb-host.nl node1
+10.24.38.3 node2.klein-mkb-host.nl node2
+10.24.38.4 node3.klein-mkb-host.nl node3
+
+
+Cluster gemaakt.
+https://pve.proxmox.com/wiki/Cluster_Manager
+op node 1: 
+    pvecm create cluster1
+Vervolgens voor node2 en node3:
+    pvecm add 10.24.38.2
+
+Installeer ceph:
+https://pve.proxmox.com/wiki/Deploy_Hyper-Converged_Ceph_Cluster
+1. pveceph install --repository no-subscription
+2. pveceph init --network 10.24.38.0/24
+
+STAP 1: FIX NVME-CLI PROBLEEM
+Op alle 3 nodes uitvoeren:
+# Voeg Debian repositories toe 
+cat /etc/apt/sources.list.d/debian.sources
+# Zo niet, dan:
+# echo "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > /etc/apt/sources.list
+
+# Update en installeer nvme-cli
+apt update
+apt install nvme-cli
+
+# Installeer Ceph
+pveceph install --repository no-subscription
+
+STAP 2: INITIALISEER CEPH (alleen op node1)
+pveceph init --network 10.24.38.0/24
+
+STAP 3: MAAK CEPH MONITORS AAN
+Op alle 3 nodes:
+pveceph mon create
+
+STAP 4: MAAK CEPH MANAGERS AAN
+Op alle 3 nodes:
+pveceph mgr create
+
+STAP 5: CREËER OSD'S (op alle nodes)
+# Check beschikbare disks
+lsblk
+pvesm status
+
+# Maak partitie met parted zoals hierboven beschreven
+parted /dev/sdX  # of de juiste disk
+(parted) print free
+(parted) mkpart OSD1 <start> <end>
+(parted) quit
+
+# Creëer OSD
+pveceph osd create /dev/sda4  # gebruik de nieuwe partitie
+
+STAP 6: MAAK CEPH POOL AAN (op node1)
+# Voor VM's en containers
+pveceph pool create ceph-pool --add_storages
+
+STAP 6B: SETUP CEPHFS (Shared filesystem across nodes)
+# Maak Metadata Servers (MDS) aan op alle 3 nodes
+# Op node1:
+pveceph mds create
+# Op node2:
+pveceph mds create
+# Op node3:
+pveceph mds create
+
+# Maak CephFS pools en filesystem (op node1)
+ceph osd pool create cephfs_data 32
+ceph osd pool create cephfs_metadata 16
+ceph fs new cephfs cephfs_metadata cephfs_data
+
+# Voeg toe aan Proxmox storage
+pvesm add cephfs cephfs --path /mnt/pve/cephfs --content backup,vztmpl,iso,snippets --nodes node1,node2,node3
+
+# Verify
+ceph mds stat
+ceph fs ls
+ls -la /mnt/pve/cephfs
+
+# Clone git repo naar shared storage
+cd /mnt/pve/cephfs
+git clone https://github.com/Reinder15/cloud_computing_prac1.git
+# Nu toegankelijk op alle nodes via: /mnt/pve/cephfs/cloud_computing_prac1
+
+STAP 7: WORDPRESS IN LXC (KLANT 1 - TRAINING)
+https://pve.proxmox.com/pve-docs/pve-admin-guide.html#chapter_pct
+# Download Ubuntu/Debian LXC template
+pveam update
+pveam available | grep ubuntu
+pveam download local ubuntu-25.04-standard_25.04-1.1_amd64.tar.zst
+pveam list local
+
+# Maak LXC container
+pct create 100 local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst \
+  --hostname wordpress-training \
+  --memory 2048 \
+  --net0 name=eth0,bridge=vmbr0,ip=10.24.38.10/24,gw=10.24.38.1 \
+  --nameserver 8.8.8.8 \
+  --onboot 1 \
+  --start 1 \
+  --storage ceph-pool
+
+# Start container en installeer WordPress MANUEEL:
+pct start 100
+pct enter 100
+
+# In de container:
+https://developer.wordpress.org/advanced-administration/before-install/howto-install/
+apt update && apt upgrade -y
+apt install apache2 mysql-server php php-mysql libapache2-mod-php php-cli php-curl php-gd php-mbstring php-xml php-xmlrpc -y
+wget https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+mv wordpress /var/www/html/
+
+https://developer.wordpress.org/advanced-administration/before-install/creating-database/
+mysql
+mysql> CREATE DATABASE myWordPressDatabase;  
+mysql> CREATE USER "admin"@"localhost" IDENTIFIED BY "admin";
+mysql> GRANT ALL PRIVILEGES ON myWordPressDatabase.* TO "admin"@"localhost";
+mysql> FLUSH PRIVILEGES;  
+mysql> EXIT
+
+touch /var/www/html/wp-config.php
+# Vul wp-config.php in met database gegevens
+
+
+STAP 8: WORDPRESS IN VM (KLANT 2 - HA)
+# Download Ubuntu/Debian ISO
+# Maak VM via GUI met minimaal 2GB RAM
+# Installeer OS manueel
+# Installeer WordPress zoals bij LXC
+
+STAP 9: BASH SCRIPTS MAKEN
+# Maak install-wordpress-lxc.sh
+# Maak install-wordpress-vm.sh
+# Test beide scripts
+
+STAP 10: ANSIBLE PLAYBOOKS
+# Installeer Ansible op een control node
+# Maak playbook voor LXC WordPress
+# Maak playbook voor VM WordPress
+# Maak playbook voor monitoring
+
+STAP 11: HA CONFIGUREREN
+# Via Proxmox GUI:
+# Datacenter > HA > Add
+# Voeg VM toe met strict policy
+1. Via Proxmox GUI: **Datacenter > HA > Add**
+2. Selecteer de WordPress VM
+3. Kies **strict** policy (VM moet altijd draaien)
+4. Test HA door een node uit te zetten (mail systeembeheer eerst!)
+
+STAP 12: MONITORING
+# Installeer monitoring tools (Prometheus/Grafana)
+# Configureer alerts
+Opties:
+- Proxmox ingebouwde monitoring (basic)
+- Prometheus + Grafana (geavanceerd)
+- Zabbix
+- Check_MK
+
+=== GITHUB HTTPS AUTHENTICATION ===
+# Op node1 (of elke node), setup git credentials
+git config --global credential.helper store
+git config --global user.name "Your Name"
+git config --global user.email "your_email@example.com"
+
+# Maak Personal Access Token (PAT) aan:
+# 1. GitHub.com → Settings → Developer settings → Personal access tokens → Tokens (classic)
+# 2. Generate new token (classic)
+# 3. Selecteer scope: repo (full control)
+# 4. Copy de token (ghp_xxxxxxxxxxxx...)
+
+# Clone met HTTPS (eerste keer vraagt om credentials):
+git clone https://github.com/Reinder15/cloud_computing_prac1.git
+# Username: Reinder15
+# Password: <paste PAT token>
+
+# Token wordt opgeslagen in ~/.git-credentials voor toekomstig gebruik
