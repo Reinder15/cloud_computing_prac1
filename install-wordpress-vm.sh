@@ -26,7 +26,7 @@ MEMORY="2048"
 CORES="2"
 GATEWAY="10.24.38.1"
 NAMESERVER="8.8.8.8"
-STORAGE="ceph"                                 # Ceph storage pool
+STORAGE="ceph-pool"                                 # Ceph storage pool
 
 # Colors for output
 RED='\033[0;31m'
