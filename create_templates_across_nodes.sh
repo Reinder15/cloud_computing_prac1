@@ -2,7 +2,7 @@
 ###############################################################################
 TEMPLATE_BASE_NAME="ubuntu-template"
 TEMPLATE_ID=301  # Single template ID for Ceph storage
-CEPH_STORAGE="ceph"  # Ceph storage pool name
+CEPH_STORAGE="ceph-pool"  # Ceph storage pool name
 CLOUD_IMAGE="ubuntu-22.04-server-cloudimg-amd64.img"
 SSH_KEY_PATH="~/.ssh/id_rsa.pub"
 # No pass, as we will use SSH key authentication for cloud-init user setup
