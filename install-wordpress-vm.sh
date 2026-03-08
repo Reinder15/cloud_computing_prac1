@@ -1,44 +1,32 @@
 #!/bin/bash
 ###############################################################################
-# WordPress VM Deployment Script (Clone from Template with Cloud-Init)
-# Voor Klant 2 - CRM Production (HA Ready, VM)
+# VM Deployment Script (Clone from Ceph Template with Cloud-Init)
 # 
 # Prerequisites:
-#   - Template VM with WordPress already installed
-#   - Cloud-init enabled template with SSH key configured
-#   - SSH key at ~/.ssh/id_rsa (matches template's public key)
-#   - Passwordless sudo configured in template
+#   - Template created with create_templates_across_nodes.sh
+#   - Template ID 301 on Ceph storage
 #
 # This script:
-#   1. Clones the template VM
-#   2. Configures network via cloud-init (automatic IP assignment!)
-#   3. Starts VM with new IP address configured automatically
-#   4. Customizes hostname and system settings via SSH key auth
+#   1. Clones the template VM from Ceph storage
+#   2. Configures network via cloud-init
+#   3. Starts VM
 #
 # Usage: bash install-wordpress-vm.sh [VMID] [IP_ADDRESS] [VM_NAME]
-# Example: bash install-wordpress-vm.sh 300 10.24.38.31 wordpress-crm-prod2
-#
-# To use a different template: TEMPLATE_ID=210 bash install-wordpress-vm.sh 300 10.24.38.31
+# Example: bash install-wordpress-vm.sh 400 10.24.38.40 test-vm-01
 ###############################################################################
 
 set -e  # Exit on error
 
 # Configuration Variables
-VMID="${1:-300}"                              # VM ID (default: 300)
-VM_IP="${2:-10.24.38.31}"                     # VM IP (default: 10.24.38.31)
-VM_NAME="${3:-wordpress-crm-prod-${VMID}}"    # VM name
-TEMPLATE_ID="${TEMPLATE_ID:-200}"             # Template VM ID (override with env var)
-MEMORY="4096"
+VMID="${1:-400}"                              # VM ID (default: 400)
+VM_IP="${2:-10.24.38.40}"                     # VM IP (default: 10.24.38.40)
+VM_NAME="${3:-ubuntu-vm-${VMID}}"             # VM name
+TEMPLATE_ID="301"                              # Template VM ID on Ceph storage
+MEMORY="2048"
 CORES="2"
 GATEWAY="10.24.38.1"
 NAMESERVER="8.8.8.8"
-STORAGE="ceph-pool"
-
-# SSH Configuration (for post-deployment customization)
-SSH_USER="${SSH_USER:-client}"                # Default: client (use ubuntu for cloud-init templates)
-SSH_KEY="/mnt/pve/cephfs/.ssh/id_rsa"        # SSH key in shared storage (accessible from all nodes)
-# Note: SSH key authentication is used (configured via cloud-init on template)
-# Template must have SSH key configured: qm set <TEMPLATE_ID> --sshkeys /mnt/pve/cephfs/.ssh/id_rsa.pub
+STORAGE="ceph"                                 # Ceph storage pool
 
 # Colors for output
 RED='\033[0;31m'
@@ -70,15 +58,12 @@ log_step() {
 check_dependencies() {
     log_step "Checking dependencies..."
     
-    # Check if SSH key exists in shared storage
-    if [ ! -f "${SSH_KEY}" ]; then
-        log_error "SSH key not found at ${SSH_KEY}"
-        log_error "Generate it with: ssh-keygen -t rsa -b 4096 -f ${SSH_KEY} -N \"\""
-        log_error "Or copy existing: cp ~/.ssh/id_rsa ${SSH_KEY} && chmod 600 ${SSH_KEY}"
+    # Check if qm command is available
+    if ! command -v qm &> /dev/null; then
+        log_error "qm command not found. This script must run on a Proxmox node."
         exit 1
     fi
     
-    log_info "SSH key found at ${SSH_KEY}"
     log_info "Dependencies check complete!"
 }
 
@@ -139,48 +124,7 @@ configure_vm() {
 start_vm() {
     log_step "Starting VM ${VMID}..."
     qm start ${VMID}
-    log_info "VM starting... waiting for boot to complete..."
-}
-
-wait_for_ssh() {
-    log_step "Waiting for VM to boot and cloud-init to configure network..."
-    log_info "VM should boot with IP: ${VM_IP}"
-    
-    local max_attempts=60
-    local attempt=0
-    
-    while [ $attempt -lt $max_attempts ]; do
-        if ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-            ${SSH_USER}@${VM_IP} "echo 'SSH Ready'" &>/dev/null; then
-            log_info "SSH connection established on ${VM_IP}!"
-            return 0
-        fi
-        
-        attempt=$((attempt + 1))
-        echo -ne "\r${YELLOW}[WAIT]${NC} Attempt $attempt/$max_attempts..."
-        sleep 5
-    done
-    
-    echo
-    log_error "SSH connection timeout! VM may not have booted properly."
-    log_error "Check VM console for cloud-init status"
-    log_error "Verify SSH key is configured on template"
-    exit 1
-}
-
-ssh_exec() {
-    local command="${1}"
-    # Execute command on the VM via SSH with sudo (passwordless via cloud-init config)
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no -o BatchMode=yes \
-        ${SSH_USER}@${VM_IP} "sudo bash -c \"${command}\""
-}
-
-customize_vm() {
-    log_step "Customizing VM hostname and system settings..."
-    
-    ssh_exec "hostnamectl set-hostname ${VM_NAME} && sed -i 's/wordpress-crm-prod/${VM_NAME}/g' /etc/hosts && rm -f /etc/machine-id /var/lib/dbus/machine-id && dbus-uuidgen --ensure=/etc/machine-id && dbus-uuidgen --ensure && journalctl --rotate && journalctl --vacuum-time=1s"
-    
-    log_info "VM customized with hostname: ${VM_NAME}"
+    log_info "VM started successfully!"
 }
 
 ###############################################################################
@@ -191,7 +135,7 @@ main() {
     clear
     echo -e "${BLUE}"
     echo "==================================================================="
-    echo "           WordPress VM Installation Script                        "
+    echo "           VM Creation Script                                      "
     echo "==================================================================="
     echo -e "${NC}"
     log_info "VM ID: ${VMID}"
@@ -200,14 +144,15 @@ main() {
     log_info "Template: ${TEMPLATE_ID}"
     log_info "Memory: ${MEMORY} MB"
     log_info "Cores: ${CORES}"
+    log_info "Storage: ${STORAGE}"
     echo "==================================================================="
     echo
     
     # Confirmation
-    read -p "Continue with installation? (y/N): " -n 1 -r
+    read -p "Continue with VM creation? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_warn "Installation cancelled."
+        log_warn "VM creation cancelled."
         exit 0
     fi
     
@@ -219,38 +164,24 @@ main() {
     clone_vm
     configure_vm
     start_vm
-    wait_for_ssh
-    customize_vm
     
     # Display success message
     echo
     echo -e "${GREEN}"
     echo "==================================================================="
-    echo "           VM Deployment Completed Successfully!                   "
+    echo "           VM Creation Completed Successfully!                     "
     echo "==================================================================="
     echo -e "${NC}"
-    log_info "WordPress is now accessible at: ${GREEN}http://${VM_IP}${NC}"
-    echo
     log_info "VM Details:"
     log_info "  VM ID: ${VMID}"
     log_info "  VM Name: ${VM_NAME}"
     log_info "  IP Address: ${VM_IP}"
+    log_info "  Gateway: ${GATEWAY}"
     log_info "  Cloned from: Template ${TEMPLATE_ID}"
+    log_info "  Storage: ${STORAGE}"
     echo
-    log_info "SSH Access:"
-    log_info "  ssh ${SSH_USER}@${VM_IP}"
-    log_info "  Authentication: SSH key (from template)"
-    echo
-    log_info "WordPress (inherited from template):"
-    log_info "  Database: wordpress_db"
-    log_info "  User: wpuser"
-    log_info "  URL: http://${VM_IP}"
-    echo
-    log_info "Next Steps:"
-    log_info "  1. Access WordPress at http://${VM_IP}"
-    log_info "  2. Configure HA: Datacenter > HA > Add (VM ${VMID})"
-    log_info "  3. Set up backup schedule in Proxmox"
-    log_info "  4. Update WordPress site settings (if needed)"
+    log_info "VM is now booting with cloud-init configuring the network..."
+    log_info "Access the VM console in Proxmox to monitor boot progress."
     echo "==================================================================="
     echo
 }
