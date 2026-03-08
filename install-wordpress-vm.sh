@@ -158,33 +158,37 @@ wait_for_ssh() {
 ssh_exec() {
     local target_ip="${1}"
     local command="${2}"
+    # Use -S to read password from stdin, suppress the password prompt with 2>/dev/null
     sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
-        ${SSH_USER}@${target_ip} "echo '${SSH_PASS}' | sudo -S bash -c '${command}'"
+        ${SSH_USER}@${target_ip} "echo '${SSH_PASS}' | sudo -S bash -c \"${command}\" 2>/dev/null"
 }
 
 change_network_config() {
     log_step "Changing network configuration from ${TEMPLATE_IP} to ${VM_IP}..."
     
-    ssh_exec "${TEMPLATE_IP}" "
-        # Find the netplan configuration file
-        NETPLAN_FILE=\$(ls /etc/netplan/*.yaml | head -1)
-        
-        if [ -z \"\$NETPLAN_FILE\" ]; then
-            echo 'ERROR: No netplan config found!'
-            exit 1
-        fi
-        
-        echo 'Found netplan config: '\$NETPLAN_FILE
-        
-        # Backup original
-        cp \$NETPLAN_FILE \${NETPLAN_FILE}.bak
-        
-        # Replace old IP with new IP
-        sed -i 's/${TEMPLATE_IP}/${VM_IP}/g' \$NETPLAN_FILE
-        
-        # Apply netplan changes
-        netplan apply
-    "
+    sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
+        ${SSH_USER}@${TEMPLATE_IP} bash << ENDSSH
+echo "${SSH_PASS}" | sudo -S bash << 'ENDSCRIPT'
+# Find the netplan configuration file
+NETPLAN_FILE=\$(ls /etc/netplan/*.yaml | head -1)
+
+if [ -z "\$NETPLAN_FILE" ]; then
+    echo 'ERROR: No netplan config found!'
+    exit 1
+fi
+
+echo "Found netplan config: \$NETPLAN_FILE"
+
+# Backup original
+cp \$NETPLAN_FILE \${NETPLAN_FILE}.bak
+
+# Replace old IP with new IP
+sed -i 's/${TEMPLATE_IP}/${VM_IP}/g' \$NETPLAN_FILE
+
+# Apply netplan changes
+netplan apply
+ENDSCRIPT
+ENDSSH
     
     log_info "Network configuration updated!"
     log_info "Waiting for network to reconfigure..."
@@ -194,22 +198,7 @@ change_network_config() {
 customize_vm() {
     log_step "Customizing VM hostname and system settings..."
     
-    ssh_exec "${VM_IP}" "
-        # Update hostname
-        hostnamectl set-hostname ${VM_NAME}
-        
-        # Update /etc/hosts (replace old hostname with new)
-        sed -i 's/wordpress-crm-prod/${VM_NAME}/g' /etc/hosts
-        
-        # Regenerate machine-id for uniqueness
-        rm -f /etc/machine-id /var/lib/dbus/machine-id
-        dbus-uuidgen --ensure=/etc/machine-id
-        dbus-uuidgen --ensure
-        
-        # Clear systemd journal from template
-        journalctl --rotate
-        journalctl --vacuum-time=1s
-    "
+    ssh_exec "${VM_IP}" "hostnamectl set-hostname ${VM_NAME} && sed -i 's/wordpress-crm-prod/${VM_NAME}/g' /etc/hosts && rm -f /etc/machine-id /var/lib/dbus/machine-id && dbus-uuidgen --ensure=/etc/machine-id && dbus-uuidgen --ensure && journalctl --rotate && journalctl --vacuum-time=1s"
     
     log_info "VM customized with hostname: ${VM_NAME}"
 }
@@ -217,17 +206,7 @@ customize_vm() {
 verify_wordpress() {
     log_step "Verifying WordPress installation..."
     
-    ssh_exec "${VM_IP}" "
-        # Check if services are running
-        systemctl is-active --quiet apache2 || systemctl restart apache2
-        systemctl is-active --quiet mysql || systemctl restart mysql
-        
-        # Verify WordPress files exist
-        if [ ! -f /var/www/html/wp-config.php ]; then
-            echo 'ERROR: WordPress not found in template!'
-            exit 1
-        fi
-    "
+    ssh_exec "${VM_IP}" "systemctl is-active --quiet apache2 || systemctl restart apache2; systemctl is-active --quiet mysql || systemctl restart mysql; if [ ! -f /var/www/html/wp-config.php ]; then echo 'ERROR: WordPress not found in template!'; exit 1; fi"
     
     log_info "WordPress verification complete!"
 }
