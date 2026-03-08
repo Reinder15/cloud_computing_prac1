@@ -159,7 +159,7 @@ ssh_exec() {
     local target_ip="${1}"
     local command="${2}"
     sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
-        ${SSH_USER}@${target_ip} "sudo bash -c '${command}'"
+        ${SSH_USER}@${target_ip} "echo '${SSH_PASS}' | sudo -S bash -c '${command}'"
 }
 
 change_network_config() {
