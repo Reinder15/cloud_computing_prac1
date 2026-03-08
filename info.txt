@@ -316,7 +316,7 @@ chmod 644 /mnt/pve/cephfs/.ssh/id_rsa.pub
 # Voeg cloud-init drive toe
 qm set 200 --ide2 ceph-pool:cloudinit
 qm set 200 --nameserver 8.8.8.8
-qm set 200 --ciuser client
+qm set 200 --ciuser wpuser
 
 # Configureer SSH key authenticatie (AANBEVOLEN):
 qm set 200 --sshkeys /mnt/pve/cephfs/.ssh/id_rsa.pub
