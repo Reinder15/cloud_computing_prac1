@@ -120,6 +120,31 @@ cd /mnt/pve/cephfs
 git clone https://github.com/Reinder15/cloud_computing_prac1.git
 # Nu toegankelijk op alle nodes via: /mnt/pve/cephfs/cloud_computing_prac1
 
+STAP 6C: SSH KEY MANAGEMENT (Voor multi-node VM deployment)
+# Maak SSH keys aan in CephFS shared storage zodat je vanaf elke node kunt deployen
+# Dit is belangrijk voor VM automation scripts die SSH keys nodig hebben
+
+# Optie 1: Nieuwe SSH key genereren in shared storage
+mkdir -p /mnt/pve/cephfs/.ssh
+chmod 700 /mnt/pve/cephfs/.ssh
+ssh-keygen -t rsa -b 4096 -f /mnt/pve/cephfs/.ssh/id_rsa -N ""
+chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
+chmod 644 /mnt/pve/cephfs/.ssh/id_rsa.pub
+
+# Optie 2: Kopieer bestaande key naar shared storage
+# cp ~/.ssh/id_rsa /mnt/pve/cephfs/.ssh/id_rsa
+# cp ~/.ssh/id_rsa.pub /mnt/pve/cephfs/.ssh/id_rsa.pub
+# chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
+# chmod 644 /mnt/pve/cephfs/.ssh/id_rsa.pub
+
+# Verify: Key moet nu toegankelijk zijn op alle nodes
+ls -la /mnt/pve/cephfs/.ssh/
+# Output: -rw------- 1 root root 3243 ... id_rsa
+#         -rw-r--r-- 1 root root  743 ... id_rsa.pub
+
+# Deze key wordt gebruikt door deployment scripts voor SSH authenticatie naar VMs
+# Scripts gebruiken: ssh -i /mnt/pve/cephfs/.ssh/id_rsa user@host
+
 STAP 7: WORDPRESS IN LXC (KLANT 1 - TRAINING)
 https://pve.proxmox.com/pve-docs/pve-admin-guide.html#chapter_pct
 # Download Ubuntu/Debian LXC template
@@ -178,13 +203,13 @@ wget https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-amd64.iso
 
 # Optie A: MANUELE INSTALLATIE (simpel en betrouwbaar)
 # https://pve.proxmox.com/pve-docs/qm.1.html
-qm create 200 \
-  --name wordpress-crm-prod \
+qm create 300 \
+  --name wordpress-crm1 \
   --memory 4096 \
   --cores 2 \
   --net0 virtio,bridge=vmbr0 \
   --scsihw virtio-scsi-pci \
-  --scsi0 ceph-pool:20 \
+  --scsi0 ceph-pool:30 \
   --ide2 local:iso/ubuntu-22.04.5-live-server-amd64.iso,media=cdrom \
   --boot "order=scsi0;ide2" \
   --ostype l26 \
@@ -223,7 +248,7 @@ sudo apt install -y apache2 mysql-server php libapache2-mod-php \
 
 sudo mysql
 # CREATE DATABASE wordpress_db;
-# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'SecurePass123!';
+# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'wpuser';
 # GRANT ALL PRIVILEGES ON wordpress_db.* TO 'wpuser'@'localhost';
 # FLUSH PRIVILEGES;
 # EXIT;
@@ -275,8 +300,18 @@ sudo shutdown -h now
 # STAP 8.2: VOEG CLOUD-INIT DRIVE TOE EN MAAK TEMPLATE
 # Na shutdown, voer uit op Proxmox host:
 
-# Genereer SSH key als je die nog niet hebt:
-# ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+# BELANGRIJK: Gebruik shared SSH key in CephFS voor toegang vanaf alle nodes
+# Genereer SSH key in shared storage als je die nog niet hebt:
+mkdir -p /mnt/pve/cephfs/.ssh
+chmod 700 /mnt/pve/cephfs/.ssh
+ssh-keygen -t rsa -b 4096 -f /mnt/pve/cephfs/.ssh/id_rsa -N ""
+chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
+chmod 644 /mnt/pve/cephfs/.ssh/id_rsa.pub
+
+# Of kopieer bestaande key naar shared storage:
+# cp ~/.ssh/id_rsa /mnt/pve/cephfs/.ssh/id_rsa
+# cp ~/.ssh/id_rsa.pub /mnt/pve/cephfs/.ssh/id_rsa.pub
+# chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
 
 # Voeg cloud-init drive toe
 qm set 200 --ide2 ceph-pool:cloudinit
@@ -284,7 +319,7 @@ qm set 200 --nameserver 8.8.8.8
 qm set 200 --ciuser client
 
 # Configureer SSH key authenticatie (AANBEVOLEN):
-qm set 200 --sshkeys ~/.ssh/id_rsa.pub
+qm set 200 --sshkeys /mnt/pve/cephfs/.ssh/id_rsa.pub
 
 # OF gebruik password (minder veilig):
 # qm set 200 --cipassword SecurePass123!

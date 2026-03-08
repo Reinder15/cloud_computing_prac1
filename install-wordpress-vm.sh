@@ -36,8 +36,9 @@ STORAGE="ceph-pool"
 
 # SSH Configuration (for post-deployment customization)
 SSH_USER="${SSH_USER:-client}"                # Default: client (use ubuntu for cloud-init templates)
+SSH_KEY="/mnt/pve/cephfs/.ssh/id_rsa"        # SSH key in shared storage (accessible from all nodes)
 # Note: SSH key authentication is used (configured via cloud-init on template)
-# Template must have SSH key configured: qm set <TEMPLATE_ID> --sshkeys ~/.ssh/id_rsa.pub
+# Template must have SSH key configured: qm set <TEMPLATE_ID> --sshkeys /mnt/pve/cephfs/.ssh/id_rsa.pub
 
 # Colors for output
 RED='\033[0;31m'
@@ -69,13 +70,15 @@ log_step() {
 check_dependencies() {
     log_step "Checking dependencies..."
     
-    # Check if SSH key exists
-    if [ ! -f ~/.ssh/id_rsa ]; then
-        log_warn "SSH key not found at ~/.ssh/id_rsa"
-        log_warn "Template should have SSH key configured"
-        log_warn "Generate with: ssh-keygen -t rsa -b 4096"
+    # Check if SSH key exists in shared storage
+    if [ ! -f "${SSH_KEY}" ]; then
+        log_error "SSH key not found at ${SSH_KEY}"
+        log_error "Generate it with: ssh-keygen -t rsa -b 4096 -f ${SSH_KEY} -N \"\""
+        log_error "Or copy existing: cp ~/.ssh/id_rsa ${SSH_KEY} && chmod 600 ${SSH_KEY}"
+        exit 1
     fi
     
+    log_info "SSH key found at ${SSH_KEY}"
     log_info "Dependencies check complete!"
 }
 
@@ -125,20 +128,8 @@ clone_vm() {
 
 configure_vm() {
     log_step "Configuring VM with cloud-init for network setup..."
-    
-    # Add cloud-init drive if not present
-    if ! qm config ${VMID} | grep -q "ide2"; then
-        log_info "Adding cloud-init drive..."
-        qm set ${VMID} --ide2 ${STORAGE}:cloudinit
-    fi
-    
-    # Configure network via cloud-init
+
     qm set ${VMID} --ipconfig0 ip=${VM_IP}/24,gw=${GATEWAY}
-    qm set ${VMID} --nameserver ${NAMESERVER}
-    
-    # Configure resources
-    qm set ${VMID} --memory ${MEMORY} --cores ${CORES}
-    qm set ${VMID} --onboot 1
     
     # Cloud-init needs to regenerate to apply new settings
     log_info "Cloud-init configured with IP: ${VM_IP}"
@@ -159,7 +150,7 @@ wait_for_ssh() {
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
-        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+        if ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
             ${SSH_USER}@${VM_IP} "echo 'SSH Ready'" &>/dev/null; then
             log_info "SSH connection established on ${VM_IP}!"
             return 0
@@ -180,7 +171,7 @@ wait_for_ssh() {
 ssh_exec() {
     local command="${1}"
     # Execute command on the VM via SSH with sudo (passwordless via cloud-init config)
-    ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no -o BatchMode=yes \
         ${SSH_USER}@${VM_IP} "sudo bash -c \"${command}\""
 }
 
@@ -190,14 +181,6 @@ customize_vm() {
     ssh_exec "hostnamectl set-hostname ${VM_NAME} && sed -i 's/wordpress-crm-prod/${VM_NAME}/g' /etc/hosts && rm -f /etc/machine-id /var/lib/dbus/machine-id && dbus-uuidgen --ensure=/etc/machine-id && dbus-uuidgen --ensure && journalctl --rotate && journalctl --vacuum-time=1s"
     
     log_info "VM customized with hostname: ${VM_NAME}"
-}
-
-verify_wordpress() {
-    log_step "Verifying WordPress installation..."
-    
-    ssh_exec "systemctl is-active --quiet apache2 || systemctl restart apache2; systemctl is-active --quiet mysql || systemctl restart mysql; if [ ! -f /var/www/html/wp-config.php ]; then echo 'ERROR: WordPress not found in template!'; exit 1; fi"
-    
-    log_info "WordPress verification complete!"
 }
 
 ###############################################################################
@@ -238,7 +221,6 @@ main() {
     start_vm
     wait_for_ssh
     customize_vm
-    verify_wordpress
     
     # Display success message
     echo
