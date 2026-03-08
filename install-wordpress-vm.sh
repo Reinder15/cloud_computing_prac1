@@ -1,15 +1,19 @@
 #!/bin/bash
 ###############################################################################
-# WordPress VM Deployment Script (Clone from Template)
+# WordPress VM Deployment Script (Clone from Template with Cloud-Init)
 # Voor Klant 2 - CRM Production (HA Ready, VM)
 # 
 # Prerequisites:
 #   - Template VM 200 must exist with WordPress already installed
 #   - Template includes: Apache, MySQL, PHP, WordPress files
-#   - SSH access to VMs (client user with password or SSH key)
+#   - Cloud-init support (automatically added by this script)
+#   - SSH access to VMs for post-deployment customization
 #
-# This script clones the template and customizes network/hostname only.
-# WordPress and database are already configured in the template.
+# This script:
+#   1. Clones the template VM
+#   2. Configures network via cloud-init (no SSH password issues!)
+#   3. Starts VM with new IP address configured automatically
+#   4. Customizes hostname and system settings via SSH
 #
 # Usage: bash install-wordpress-vm.sh [VMID] [IP_ADDRESS] [VM_NAME]
 # Example: bash install-wordpress-vm.sh 300 10.24.38.31 wordpress-crm-prod2
@@ -22,14 +26,13 @@ VMID="${1:-300}"                              # VM ID (default: 300)
 VM_IP="${2:-10.24.38.31}"                     # VM IP (default: 10.24.38.31)
 VM_NAME="${3:-wordpress-crm-prod-${VMID}}"    # VM name
 TEMPLATE_ID="200"                             # Template VM ID
-TEMPLATE_IP="10.24.38.30"                     # Template's original IP (before clone)
 MEMORY="4096"
 CORES="2"
 GATEWAY="10.24.38.1"
 NAMESERVER="8.8.8.8"
 STORAGE="ceph-pool"
 
-# SSH Configuration (for optional customization)
+# SSH Configuration (for post-deployment customization)
 SSH_USER="client"
 SSH_PASS="SecurePass123!"
 
@@ -116,12 +119,24 @@ clone_vm() {
 }
 
 configure_vm() {
-    log_step "Configuring VM network and resources..."
+    log_step "Configuring VM with cloud-init for network setup..."
     
+    # Add cloud-init drive if not present
+    if ! qm config ${VMID} | grep -q "ide2"; then
+        log_info "Adding cloud-init drive..."
+        qm set ${VMID} --ide2 ${STORAGE}:cloudinit
+    fi
+    
+    # Configure network via cloud-init
     qm set ${VMID} --ipconfig0 ip=${VM_IP}/24,gw=${GATEWAY}
+    qm set ${VMID} --nameserver ${NAMESERVER}
+    
+    # Configure resources
     qm set ${VMID} --memory ${MEMORY} --cores ${CORES}
     qm set ${VMID} --onboot 1
     
+    # Cloud-init needs to regenerate to apply new settings
+    log_info "Cloud-init configured with IP: ${VM_IP}"
     log_info "VM configured!"
 }
 
@@ -132,16 +147,16 @@ start_vm() {
 }
 
 wait_for_ssh() {
-    log_step "Waiting for VM to boot and SSH to be available (on template IP)..."
-    log_info "Note: VM will initially use template IP ${TEMPLATE_IP}"
+    log_step "Waiting for VM to boot and cloud-init to configure network..."
+    log_info "VM should boot with IP: ${VM_IP}"
     
     local max_attempts=60
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
         if sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-            ${SSH_USER}@${TEMPLATE_IP} "echo 'SSH Ready'" &>/dev/null; then
-            log_info "SSH connection established on ${TEMPLATE_IP}!"
+            ${SSH_USER}@${VM_IP} "echo 'SSH Ready'" &>/dev/null; then
+            log_info "SSH connection established on ${VM_IP}!"
             return 0
         fi
         
@@ -152,53 +167,21 @@ wait_for_ssh() {
     
     echo
     log_error "SSH connection timeout! VM may not have booted properly."
+    log_error "Check VM console for cloud-init status"
     exit 1
 }
 
 ssh_exec() {
-    local target_ip="${1}"
-    local command="${2}"
-    # Use -S to read password from stdin, suppress the password prompt with 2>/dev/null
+    local command="${1}"
+    # Execute command on the VM via SSH with sudo
     sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
-        ${SSH_USER}@${target_ip} "echo '${SSH_PASS}' | sudo -S bash -c \"${command}\" 2>/dev/null"
-}
-
-change_network_config() {
-    log_step "Changing network configuration from ${TEMPLATE_IP} to ${VM_IP}..."
-    
-    sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
-        ${SSH_USER}@${TEMPLATE_IP} bash << ENDSSH
-echo "${SSH_PASS}" | sudo -S bash << 'ENDSCRIPT'
-# Find the netplan configuration file
-NETPLAN_FILE=\$(ls /etc/netplan/*.yaml | head -1)
-
-if [ -z "\$NETPLAN_FILE" ]; then
-    echo 'ERROR: No netplan config found!'
-    exit 1
-fi
-
-echo "Found netplan config: \$NETPLAN_FILE"
-
-# Backup original
-cp \$NETPLAN_FILE \${NETPLAN_FILE}.bak
-
-# Replace old IP with new IP
-sed -i 's/${TEMPLATE_IP}/${VM_IP}/g' \$NETPLAN_FILE
-
-# Apply netplan changes
-netplan apply
-ENDSCRIPT
-ENDSSH
-    
-    log_info "Network configuration updated!"
-    log_info "Waiting for network to reconfigure..."
-    sleep 10
+        ${SSH_USER}@${VM_IP} "echo '${SSH_PASS}' | sudo -S bash -c \"${command}\" 2>/dev/null"
 }
 
 customize_vm() {
     log_step "Customizing VM hostname and system settings..."
     
-    ssh_exec "${VM_IP}" "hostnamectl set-hostname ${VM_NAME} && sed -i 's/wordpress-crm-prod/${VM_NAME}/g' /etc/hosts && rm -f /etc/machine-id /var/lib/dbus/machine-id && dbus-uuidgen --ensure=/etc/machine-id && dbus-uuidgen --ensure && journalctl --rotate && journalctl --vacuum-time=1s"
+    ssh_exec "hostnamectl set-hostname ${VM_NAME} && sed -i 's/wordpress-crm-prod/${VM_NAME}/g' /etc/hosts && rm -f /etc/machine-id /var/lib/dbus/machine-id && dbus-uuidgen --ensure=/etc/machine-id && dbus-uuidgen --ensure && journalctl --rotate && journalctl --vacuum-time=1s"
     
     log_info "VM customized with hostname: ${VM_NAME}"
 }
@@ -206,7 +189,7 @@ customize_vm() {
 verify_wordpress() {
     log_step "Verifying WordPress installation..."
     
-    ssh_exec "${VM_IP}" "systemctl is-active --quiet apache2 || systemctl restart apache2; systemctl is-active --quiet mysql || systemctl restart mysql; if [ ! -f /var/www/html/wp-config.php ]; then echo 'ERROR: WordPress not found in template!'; exit 1; fi"
+    ssh_exec "systemctl is-active --quiet apache2 || systemctl restart apache2; systemctl is-active --quiet mysql || systemctl restart mysql; if [ ! -f /var/www/html/wp-config.php ]; then echo 'ERROR: WordPress not found in template!'; exit 1; fi"
     
     log_info "WordPress verification complete!"
 }
@@ -248,7 +231,6 @@ main() {
     configure_vm
     start_vm
     wait_for_ssh
-    change_network_config
     customize_vm
     verify_wordpress
     

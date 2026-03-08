@@ -257,6 +257,9 @@ sudo systemctl restart apache2
 # Na manuele installatie VM 200, maak er een template van:
 # qm template 200
 
+# BELANGRIJK: Cloud-init voor netwerk configuratie
+# Het VM script gebruikt cloud-init om het netwerk te configureren,
+# zodat elke clone automatisch de juiste IP krijgt zonder SSH issues.
 
 
 STAP 9: BASH SCRIPTS MAKEN
@@ -269,6 +272,13 @@ bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-lxc.sh 101 10.24.38
 # Eerste VM installeer je manueel (VM 200), dan:
 qm template 200  # Maak template
 bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-vm.sh 301 10.24.38.31 wordpress-client2
+
+# Het script:
+# 1. Kloont VM van template
+# 2. Voegt cloud-init drive toe
+# 3. Configureert netwerk via cloud-init (nieuwe IP wordt automatisch toegepast)
+# 4. Start VM (boot met correcte IP)
+# 5. Customized hostname via SSH
 
 # Voor meerdere VMs:
 bash install-wordpress-vm.sh 302 10.24.38.32 wordpress-client3
