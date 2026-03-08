@@ -4,19 +4,21 @@
 # Voor Klant 2 - CRM Production (HA Ready, VM)
 # 
 # Prerequisites:
-#   - Template VM 200 must exist with WordPress already installed
-#   - Template includes: Apache, MySQL, PHP, WordPress files
-#   - Cloud-init support (automatically added by this script)
-#   - SSH access to VMs for post-deployment customization
+#   - Template VM with WordPress already installed
+#   - Cloud-init enabled template with SSH key configured
+#   - SSH key at ~/.ssh/id_rsa (matches template's public key)
+#   - Passwordless sudo configured in template
 #
 # This script:
 #   1. Clones the template VM
-#   2. Configures network via cloud-init (no SSH password issues!)
+#   2. Configures network via cloud-init (automatic IP assignment!)
 #   3. Starts VM with new IP address configured automatically
-#   4. Customizes hostname and system settings via SSH
+#   4. Customizes hostname and system settings via SSH key auth
 #
 # Usage: bash install-wordpress-vm.sh [VMID] [IP_ADDRESS] [VM_NAME]
 # Example: bash install-wordpress-vm.sh 300 10.24.38.31 wordpress-crm-prod2
+#
+# To use a different template: TEMPLATE_ID=210 bash install-wordpress-vm.sh 300 10.24.38.31
 ###############################################################################
 
 set -e  # Exit on error
@@ -25,7 +27,7 @@ set -e  # Exit on error
 VMID="${1:-300}"                              # VM ID (default: 300)
 VM_IP="${2:-10.24.38.31}"                     # VM IP (default: 10.24.38.31)
 VM_NAME="${3:-wordpress-crm-prod-${VMID}}"    # VM name
-TEMPLATE_ID="200"                             # Template VM ID
+TEMPLATE_ID="${TEMPLATE_ID:-200}"             # Template VM ID (override with env var)
 MEMORY="4096"
 CORES="2"
 GATEWAY="10.24.38.1"
@@ -33,8 +35,9 @@ NAMESERVER="8.8.8.8"
 STORAGE="ceph-pool"
 
 # SSH Configuration (for post-deployment customization)
-SSH_USER="client"
-SSH_PASS="SecurePass123!"
+SSH_USER="${SSH_USER:-client}"                # Default: client (use ubuntu for cloud-init templates)
+# Note: SSH key authentication is used (configured via cloud-init on template)
+# Template must have SSH key configured: qm set <TEMPLATE_ID> --sshkeys ~/.ssh/id_rsa.pub
 
 # Colors for output
 RED='\033[0;31m'
@@ -66,12 +69,14 @@ log_step() {
 check_dependencies() {
     log_step "Checking dependencies..."
     
-    if ! command -v sshpass &>/dev/null; then
-        log_warn "sshpass not found. Installing..."
-        apt update && apt install -y sshpass
+    # Check if SSH key exists
+    if [ ! -f ~/.ssh/id_rsa ]; then
+        log_warn "SSH key not found at ~/.ssh/id_rsa"
+        log_warn "Template should have SSH key configured"
+        log_warn "Generate with: ssh-keygen -t rsa -b 4096"
     fi
     
-    log_info "All dependencies satisfied!"
+    log_info "Dependencies check complete!"
 }
 
 check_template() {
@@ -154,7 +159,7 @@ wait_for_ssh() {
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
-        if sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
             ${SSH_USER}@${VM_IP} "echo 'SSH Ready'" &>/dev/null; then
             log_info "SSH connection established on ${VM_IP}!"
             return 0
@@ -168,14 +173,15 @@ wait_for_ssh() {
     echo
     log_error "SSH connection timeout! VM may not have booted properly."
     log_error "Check VM console for cloud-init status"
+    log_error "Verify SSH key is configured on template"
     exit 1
 }
 
 ssh_exec() {
     local command="${1}"
-    # Execute command on the VM via SSH with sudo
-    sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
-        ${SSH_USER}@${VM_IP} "echo '${SSH_PASS}' | sudo -S bash -c \"${command}\" 2>/dev/null"
+    # Execute command on the VM via SSH with sudo (passwordless via cloud-init config)
+    ssh -o StrictHostKeyChecking=no -o BatchMode=yes \
+        ${SSH_USER}@${VM_IP} "sudo bash -c \"${command}\""
 }
 
 customize_vm() {
@@ -251,7 +257,7 @@ main() {
     echo
     log_info "SSH Access:"
     log_info "  ssh ${SSH_USER}@${VM_IP}"
-    log_info "  Password: ${SSH_PASS}"
+    log_info "  Authentication: SSH key (from template)"
     echo
     log_info "WordPress (inherited from template):"
     log_info "  Database: wordpress_db"
