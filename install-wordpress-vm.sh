@@ -114,15 +114,21 @@ clone_vm() {
 configure_vm() {
     log_step "Configuring VM with cloud-init for network setup..."
 
-    qm set ${VMID} --ipconfig0 ip=${VM_IP}/24,gw=${GATEWAY}
-    
-    # Cloud-init needs to regenerate to apply new settings
+    qm set $VMID \
+        --memory 4096 \
+        --net0 virtio,bridge=vmbr1 \
+        --ipconfig0 ip=${VM_IP}/24,gw=${GATEWAY} \
+        --nameserver "8.8.8.8" \
+        --ciuser admin \
+        --cipassword "admin"
+
     log_info "Cloud-init configured with IP: ${VM_IP}"
     log_info "VM configured!"
 }
 
 start_vm() {
     log_step "Starting VM ${VMID}..."
+    qm cloudinit update ${VMID}
     qm start ${VMID}
     log_info "VM started successfully!"
 }
