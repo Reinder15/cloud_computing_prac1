@@ -22,6 +22,7 @@ VMID="${1:-300}"                              # VM ID (default: 300)
 VM_IP="${2:-10.24.38.31}"                     # VM IP (default: 10.24.38.31)
 VM_NAME="${3:-wordpress-crm-prod-${VMID}}"    # VM name
 TEMPLATE_ID="200"                             # Template VM ID
+TEMPLATE_IP="10.24.38.30"                     # Template's original IP (before clone)
 MEMORY="4096"
 CORES="2"
 GATEWAY="10.24.38.1"
@@ -57,6 +58,17 @@ log_error() {
 
 log_step() {
     echo -e "${BLUE}[STEP]${NC} $1"
+}
+
+check_dependencies() {
+    log_step "Checking dependencies..."
+    
+    if ! command -v sshpass &>/dev/null; then
+        log_warn "sshpass not found. Installing..."
+        apt update && apt install -y sshpass
+    fi
+    
+    log_info "All dependencies satisfied!"
 }
 
 check_template() {
@@ -120,15 +132,16 @@ start_vm() {
 }
 
 wait_for_ssh() {
-    log_step "Waiting for VM to boot and SSH to be available..."
+    log_step "Waiting for VM to boot and SSH to be available (on template IP)..."
+    log_info "Note: VM will initially use template IP ${TEMPLATE_IP}"
     
     local max_attempts=60
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
         if sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-            ${SSH_USER}@${VM_IP} "echo 'SSH Ready'" &>/dev/null; then
-            log_info "SSH connection established!"
+            ${SSH_USER}@${TEMPLATE_IP} "echo 'SSH Ready'" &>/dev/null; then
+            log_info "SSH connection established on ${TEMPLATE_IP}!"
             return 0
         fi
         
@@ -143,14 +156,45 @@ wait_for_ssh() {
 }
 
 ssh_exec() {
+    local target_ip="${1}"
+    local command="${2}"
     sshpass -p "${SSH_PASS}" ssh -o StrictHostKeyChecking=no \
-        ${SSH_USER}@${VM_IP} "sudo bash -c '$1'"
+        ${SSH_USER}@${target_ip} "sudo bash -c '${command}'"
+}
+
+change_network_config() {
+    log_step "Changing network configuration from ${TEMPLATE_IP} to ${VM_IP}..."
+    
+    ssh_exec "${TEMPLATE_IP}" "
+        # Find the netplan configuration file
+        NETPLAN_FILE=\$(ls /etc/netplan/*.yaml | head -1)
+        
+        if [ -z \"\$NETPLAN_FILE\" ]; then
+            echo 'ERROR: No netplan config found!'
+            exit 1
+        fi
+        
+        echo 'Found netplan config: '\$NETPLAN_FILE
+        
+        # Backup original
+        cp \$NETPLAN_FILE \${NETPLAN_FILE}.bak
+        
+        # Replace old IP with new IP
+        sed -i 's/${TEMPLATE_IP}/${VM_IP}/g' \$NETPLAN_FILE
+        
+        # Apply netplan changes
+        netplan apply
+    "
+    
+    log_info "Network configuration updated!"
+    log_info "Waiting for network to reconfigure..."
+    sleep 10
 }
 
 customize_vm() {
-    log_step "Customizing VM hostname and network..."
+    log_step "Customizing VM hostname and system settings..."
     
-    ssh_exec "
+    ssh_exec "${VM_IP}" "
         # Update hostname
         hostnamectl set-hostname ${VM_NAME}
         
@@ -173,7 +217,7 @@ customize_vm() {
 verify_wordpress() {
     log_step "Verifying WordPress installation..."
     
-    ssh_exec "
+    ssh_exec "${VM_IP}" "
         # Check if services are running
         systemctl is-active --quiet apache2 || systemctl restart apache2
         systemctl is-active --quiet mysql || systemctl restart mysql
@@ -218,18 +262,16 @@ main() {
     
     echo
     
-    # Execute installation steps
+    # Execute deployment steps
+    check_dependencies
     check_template
     clone_vm
     configure_vm
     start_vm
     wait_for_ssh
-    install_wordpress_stack
-    configure_mysql
-    install_wordpress
-    configure_wordpress
-    configure_hostname
-    finalize_setup
+    change_network_config
+    customize_vm
+    verify_wordpress
     
     # Display success message
     echo
@@ -266,11 +308,3 @@ main() {
 
 # Run main function
 main "$@"
-deployment steps
-    check_template
-    clone_vm
-    configure_vm
-    start_vm
-    wait_for_ssh
-    customize_vm
-    verify_wordpress
