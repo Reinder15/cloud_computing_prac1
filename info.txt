@@ -254,12 +254,25 @@ sudo systemctl restart apache2
 # qm set 200 --cipassword SecurePass123!
 # qm start 200
 
+# Na manuele installatie VM 200, maak er een template van:
+# qm template 200
+
 
 
 STAP 9: BASH SCRIPTS MAKEN
-# Maak install-wordpress-lxc.sh
-# Maak install-wordpress-vm.sh
-# Test beide scripts
+# Scripts zijn gemaakt in /mnt/pve/cephfs/cloud_computing_prac1/
+
+# Test LXC script:
+bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-lxc.sh 101 10.24.38.11
+
+# Test VM script (vereist template VM 200):
+# Eerste VM installeer je manueel (VM 200), dan:
+qm template 200  # Maak template
+bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-vm.sh 301 10.24.38.31 wordpress-client2
+
+# Voor meerdere VMs:
+bash install-wordpress-vm.sh 302 10.24.38.32 wordpress-client3
+bash install-wordpress-vm.sh 303 10.24.38.33 wordpress-client4
 
 STAP 10: ANSIBLE PLAYBOOKS
 # Installeer Ansible op een control node

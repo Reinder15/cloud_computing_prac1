@@ -13,8 +13,8 @@ set -e  # Exit on error
 CTID="${1:-100}"                          # Container ID (default: 100)
 CONTAINER_IP="${2:-10.24.38.10}"          # Container IP (default: 10.24.38.10)
 HOSTNAME="wordpress-server-${CTID}"
-MEMORY="2048"
-CORES="2"
+MEMORY="1024"
+CORES="1"
 GATEWAY="10.24.38.1"
 NAMESERVER="8.8.8.8"
 STORAGE="ceph-pool"
