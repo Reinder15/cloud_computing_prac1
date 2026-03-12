@@ -203,7 +203,7 @@ wget https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-amd64.iso
 
 # Optie A: MANUELE INSTALLATIE (simpel en betrouwbaar)
 # https://pve.proxmox.com/pve-docs/qm.1.html
-qm create 300 \
+qm create 500 \
   --name wordpress-crm1 \
   --memory 4096 \
   --cores 2 \
@@ -215,7 +215,7 @@ qm create 300 \
   --ostype l26 \
   --onboot 1
 
-qm start 200
+qm start 500
 
 # Nu installeren via Proxmox GUI Console:
 # 1. Proxmox GUI -> VM 200 -> Console
@@ -268,7 +268,7 @@ sudo nano wp-config.php
 
 sudo systemctl restart apache2
 
-# Test: http://10.24.38.30
+# Test: http://10.24.38.60
 
 # STAP 8.1: INSTALLEER CLOUD-INIT (BELANGRIJK VOOR TEMPLATE!)
 # Dit moet gebeuren VOOR het maken van de template
@@ -283,6 +283,21 @@ chpasswd:
   expire: false
 disable_root: false
 EOF
+
+sudo cat > /etc/ssh/sshd_config << 'EOF'
+# Standaard SSH configuratie
+PermitRootLogin yes
+PasswordAuthentication yes
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM yes
+X11Forwarding yes
+PrintMotd no
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/openssh/sftp-server
+EOF
+
+sudo systemctl restart sshd
 
 # Configureer passwordless sudo voor deployment script
 echo "client ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/client
@@ -314,22 +329,22 @@ chmod 644 /mnt/pve/cephfs/.ssh/id_rsa.pub
 # chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
 
 # Voeg cloud-init drive toe
-qm set 200 --ide2 ceph-pool:cloudinit
-qm set 200 --nameserver 8.8.8.8
-qm set 200 --ciuser wpuser
+qm set 500 --ide2 ceph-pool:cloudinit
+qm set 500 --nameserver 8.8.8.8
+qm set 500 --ciuser client
 
 # Configureer SSH key authenticatie (AANBEVOLEN):
-qm set 200 --sshkeys /mnt/pve/cephfs/.ssh/id_rsa.pub
+qm set 500 --sshkeys /mnt/pve/cephfs/.ssh/id_rsa.pub
 
 # OF gebruik password (minder veilig):
-# qm set 200 --cipassword SecurePass123!
+# qm set 500 --cipassword SecurePass123!
 
 # BELANGRIJK: Stel GEEN ipconfig0 in op de template!
 # Dit wordt automatisch geconfigureerd per clone door het deployment script.
 # Elke clone krijgt zijn eigen IP via: qm set ${VMID} --ipconfig0 ip=X.X.X.X/24,gw=...
 
 # Maak er nu een template van:
-qm template 200
+qm template 500
 
 # Test: Deploy nieuwe VMs met automatische netwerk configuratie!
 bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-vm.sh 301 10.24.38.31 wordpress-client1
@@ -337,15 +352,15 @@ bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-vm.sh 301 10.24.38.
 # Optie B: CLOUD-INIT IMAGE (vooraf geconfigureerd alternatief)
 # Als je niet wilt manueel installeren, gebruik Ubuntu cloud image:
 # wget https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
-# qm importdisk 200 jammy-server-cloudimg-amd64.img ceph-pool
-# qm set 200 --scsi0 ceph-pool:vm-200-disk-0
-# qm set 200 --ide2 ceph-pool:cloudinit
-# qm set 200 --boot c --bootdisk scsi0
-# qm set 200 --ipconfig0 ip=10.24.38.30/24,gw=10.24.38.1
-# qm set 200 --nameserver 8.8.8.8
-# qm set 200 --ciuser ubuntu
-# qm set 200 --cipassword SecurePass123!
-# qm start 200
+# qm importdisk 500 jammy-server-cloudimg-amd64.img ceph-pool
+# qm set 500 --scsi0 ceph-pool:vm-500-disk-0
+# qm set 500 --ide2 ceph-pool:cloudinit
+# qm set 500 --boot c --bootdisk scsi0
+# qm set 500 --ipconfig0 ip=10.24.38.30/24,gw=10.24.38.1
+# qm set 500 --nameserver 8.8.8.8
+# qm set 500 --ciuser ubuntu
+# qm set 500 --cipassword SecurePass123!
+# qm start 500
 # Dan WordPress installeren en template maken
 
 
@@ -355,8 +370,8 @@ STAP 9: BASH SCRIPTS MAKEN
 # Test LXC script:
 bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-lxc.sh 101 10.24.38.11
 
-# Test VM script (vereist cloud-init enabled template VM 200):
-# Template 200 heeft nu cloud-init, dus netwerk configuratie werkt automatisch!
+# Test VM script (vereist cloud-init enabled template VM 500):
+# Template 500 heeft nu cloud-init, dus netwerk configuratie werkt automatisch!
 bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-vm.sh 301 10.24.38.31 wordpress-client1
 
 # Voor meerdere VMs - elk krijgt automatisch het juiste IP:
