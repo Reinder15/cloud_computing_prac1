@@ -78,32 +78,8 @@ qm cloudinit update ${VMID}
 log_step "Starting VM ${VMID}..."
 qm start ${VMID}
 
-log_info "VM ${VMID} started! Waiting for cloud-init to complete..."
-log_info "This may take 30-60 seconds..."
-
-# Wait for SSH to become available
-log_step "Waiting for SSH to become available..."
-max_attempts=60
-attempt=0
-
-while [ $attempt -lt $max_attempts ]; do
-    if timeout 5 bash -c "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes root@${VM_IP} 'echo SSH Ready' &>/dev/null"; then
-        log_info "SSH connection successful!"
-        break
-    fi
-    
-    attempt=$((attempt + 1))
-    echo -ne "\r${YELLOW}[WAIT]${NC} Attempt $attempt/$max_attempts..."
-    sleep 2
-done
-
-echo ""
-
-if [ $attempt -eq $max_attempts ]; then
-    log_error "SSH connection timeout! VM may still be booting."
-    log_info "Try manually: ssh root@${VM_IP}"
-    exit 1
-fi
+log_info "VM ${VMID} started! Cloud-init will configure the network..."
+log_info "This may take 30-60 seconds. Please wait before attempting to connect."
 
 # Display success message
 echo ""
@@ -123,12 +99,6 @@ log_info "  SSH: ssh root@${VM_IP}"
 log_info "  Password: ${ROOT_PASSWORD}"
 log_info "  WordPress: http://${VM_IP}"
 echo ""
+log_info "Note: Wait ~60 seconds for cloud-init to complete before connecting."
 echo "==================================================================="
 echo ""
-
-# Optional: SSH into the VM
-read -p "SSH into the VM now? (y/N): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    ssh root@${VM_IP}
-fi
