@@ -15,11 +15,11 @@ NET_RATE=50
 SSH_KEY="/mnt/pve/cephfs/.ssh/id_rsa"
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes"
 
-qm clone $TEMPLATE_ID $CLONE_ID --name $CLONE_NAME -full -storage $STORAGE
+qm clone $TEMPLATE_ID $CLONE_ID --name $CLONE_NAME --full --storage $STORAGE
 qm set $CLONE_ID --net0 virtio,bridge=vmbr0,rate=$NET_RATE
 qm set $CLONE_ID --ipconfig0 ip=${VM_IP}/24,gw=$GW
 qm resize $CLONE_ID virtio0 $DISK_SIZE
-qm set $CLONE_ID --core $CORES --memory $MEMORY --balloon 0
+qm set $CLONE_ID --cores $CORES --memory $MEMORY --balloon 0
 qm set $CLONE_ID --nameserver $NAMESERVER
 qm start $CLONE_ID
 
@@ -48,7 +48,7 @@ DB_USER="wpuser"
 DB_PASS="wpuser"
 
 sudo apt-get update -q
-sudo apt-get install -y apache2 mysql-server php php-mysql curl wget
+sudo apt-get install -y apache2 mysql-server php php-mysql libapache2-mod-php curl wget
 
 sudo mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
 sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';"
@@ -73,4 +73,8 @@ sudo systemctl restart apache2
 REMOTE
 
 echo ""
-echo "Done! WordPress is available at http://${VM_IP}"
+echo "==================================================================="
+echo "WordPress installation complete!"
+echo "  Site URL:     http://${VM_IP}"
+echo "  Setup wizard: http://${VM_IP}/wp-admin/install.php"
+echo "==================================================================="
