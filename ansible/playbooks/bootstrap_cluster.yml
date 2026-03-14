@@ -1,7 +1,8 @@
 # Safe defaults:
 # - baseline tasks always run
 # - cluster/Ceph/CephFS stages are opt-in via extra vars
-# - OSD creation is destructive and stays disabled until ceph_osd_devices is set explicitly
+# - community.proxmox modules are used where available
+# - OSD, pool, and CephFS creation still use CLI because no collection module covers those steps
 
 - name: Bootstrap Proxmox baseline on all nodes
   hosts: prox_nodes
@@ -152,36 +153,93 @@
 
 - name: Create or join the Proxmox cluster
   hosts: prox_nodes
-  become: true
   gather_facts: false
-  serial: 1
   vars_files:
     - ../vars/bootstrap_cluster.yml
+  vars:
+    proxmox_api_primary_host: '{{ hostvars[proxmox_cluster_primary].ansible_host | default(proxmox_cluster_primary) }}'
+  module_defaults:
+    group/community.proxmox.proxmox:
+      api_user: '{{ lookup("ansible.builtin.env", "PROXMOX_USER") | default("root@pam", true) }}'
+      api_password: '{{ lookup("ansible.builtin.env", "PROXMOX_PASSWORD") | default(omit, true) }}'
+      api_token_id: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_ID") | default(omit, true) }}'
+      api_token_secret: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_SECRET") | default(omit, true) }}'
+      validate_certs: '{{ (lookup("ansible.builtin.env", "PROXMOX_VALIDATE_CERTS") | default("false", true)) | bool }}'
 
   tasks:
-    - name: Check whether this node already has cluster configuration
-      ansible.builtin.stat:
-        path: /etc/pve/corosync.conf
-      register: corosync_conf
+    - name: Require API credentials for community.proxmox
+      ansible.builtin.assert:
+        that:
+          - (lookup('ansible.builtin.env', 'PROXMOX_PASSWORD') | length > 0) or ((lookup('ansible.builtin.env', 'PROXMOX_TOKEN_ID') | length > 0) and (lookup('ansible.builtin.env', 'PROXMOX_TOKEN_SECRET') | length > 0))
+        fail_msg: Set PROXMOX_PASSWORD or PROXMOX_TOKEN_ID + PROXMOX_TOKEN_SECRET before running API-driven stages.
       when: bootstrap_configure_cluster | bool
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
+      tags:
+        - cluster
+
+    - name: Require password authentication for cluster joins
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'PROXMOX_PASSWORD') | length > 0
+        fail_msg: Cluster join via community.proxmox.proxmox_cluster requires PROXMOX_PASSWORD.
+      when:
+        - bootstrap_configure_cluster | bool
+        - groups['prox_nodes'] | length > 1
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cluster
 
     - name: Create cluster on the primary node
-      ansible.builtin.command: 'pvecm create {{ proxmox_cluster_name }}'
-      when:
-        - bootstrap_configure_cluster | bool
-        - inventory_hostname == proxmox_cluster_primary
-        - not corosync_conf.stat.exists
+      community.proxmox.proxmox_cluster:
+        api_host: '{{ proxmox_api_primary_host }}'
+        state: present
+        cluster_name: '{{ proxmox_cluster_name }}'
+      when: bootstrap_configure_cluster | bool
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cluster
 
-    - name: Join secondary nodes to the cluster over SSH
-      ansible.builtin.command: 'pvecm add {{ hostvars[proxmox_cluster_primary].ansible_host | default(proxmox_cluster_primary) }} --use_ssh 1'
+    - name: Gather cluster join information from the primary node
+      community.proxmox.proxmox_cluster_join_info:
+        api_host: '{{ proxmox_api_primary_host }}'
+      register: proxmox_cluster_join_info
       when:
         - bootstrap_configure_cluster | bool
-        - inventory_hostname != proxmox_cluster_primary
-        - not corosync_conf.stat.exists
+        - groups['prox_nodes'] | length > 1
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
+      tags:
+        - cluster
+
+    - name: Join secondary nodes to the cluster
+      community.proxmox.proxmox_cluster:
+        api_host: '{{ hostvars[item].ansible_host | default(item) }}'
+        state: present
+        cluster_name: '{{ proxmox_cluster_name }}'
+        master_ip: '{{ proxmox_api_primary_host }}'
+        master_api_password: '{{ lookup("ansible.builtin.env", "PROXMOX_MASTER_PASSWORD") | default(lookup("ansible.builtin.env", "PROXMOX_PASSWORD"), true) }}'
+        fingerprint: >-
+          {{
+            (
+              proxmox_cluster_join_info.cluster_join
+              | selectattr('name', 'equalto', proxmox_cluster_primary)
+              | map(attribute='pve_fp')
+              | list
+              | first
+            )
+            | default((proxmox_cluster_join_info.cluster_join | map(attribute='pve_fp') | list | first), true)
+          }}
+      loop: "{{ groups['prox_nodes'] | difference([proxmox_cluster_primary]) }}"
+      loop_control:
+        label: '{{ item }}'
+      when:
+        - bootstrap_configure_cluster | bool
+        - groups['prox_nodes'] | length > 1
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cluster
 
@@ -228,59 +286,76 @@
       tags:
         - ceph
 
-- name: Create Ceph monitors
-  hosts: ceph_mon
-  become: true
+- name: Create Ceph daemons via Proxmox API
+  hosts: prox_nodes
   gather_facts: false
-  serial: 1
   vars_files:
     - ../vars/bootstrap_cluster.yml
+  vars:
+    proxmox_api_primary_host: '{{ hostvars[proxmox_cluster_primary].ansible_host | default(proxmox_cluster_primary) }}'
+  module_defaults:
+    group/community.proxmox.proxmox:
+      api_user: '{{ lookup("ansible.builtin.env", "PROXMOX_USER") | default("root@pam", true) }}'
+      api_password: '{{ lookup("ansible.builtin.env", "PROXMOX_PASSWORD") | default(omit, true) }}'
+      api_token_id: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_ID") | default(omit, true) }}'
+      api_token_secret: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_SECRET") | default(omit, true) }}'
+      validate_certs: '{{ (lookup("ansible.builtin.env", "PROXMOX_VALIDATE_CERTS") | default("false", true)) | bool }}'
 
   tasks:
-    - name: Check whether the monitor already exists on this node
-      ansible.builtin.stat:
-        path: '/var/lib/ceph/mon/ceph-{{ inventory_hostname }}'
-      register: ceph_mon_dir
+    - name: Require API credentials for community.proxmox
+      ansible.builtin.assert:
+        that:
+          - (lookup('ansible.builtin.env', 'PROXMOX_PASSWORD') | length > 0) or ((lookup('ansible.builtin.env', 'PROXMOX_TOKEN_ID') | length > 0) and (lookup('ansible.builtin.env', 'PROXMOX_TOKEN_SECRET') | length > 0))
+        fail_msg: Set PROXMOX_PASSWORD or PROXMOX_TOKEN_ID + PROXMOX_TOKEN_SECRET before running API-driven stages.
+      when: (bootstrap_configure_ceph | bool) or (bootstrap_configure_cephfs | bool)
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
+      tags:
+        - ceph
+
+    - name: Create Ceph monitors
+      community.proxmox.proxmox_ceph_mon:
+        api_host: '{{ proxmox_api_primary_host }}'
+        node: '{{ item }}'
+        state: present
+      loop: "{{ groups['ceph_mon'] }}"
+      loop_control:
+        label: '{{ item }}'
       when: bootstrap_configure_ceph | bool
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - ceph
         - ceph-mon
 
-    - name: Create Ceph monitor on this node
-      ansible.builtin.command: pveceph mon create
-      when:
-        - bootstrap_configure_ceph | bool
-        - not ceph_mon_dir.stat.exists
-      tags:
-        - ceph
-        - ceph-mon
-
-- name: Create Ceph managers
-  hosts: ceph_mgr
-  become: true
-  gather_facts: false
-  serial: 1
-  vars_files:
-    - ../vars/bootstrap_cluster.yml
-
-  tasks:
-    - name: Check whether the manager already exists on this node
-      ansible.builtin.stat:
-        path: '/var/lib/ceph/mgr/ceph-{{ inventory_hostname }}'
-      register: ceph_mgr_dir
+    - name: Create Ceph managers
+      community.proxmox.proxmox_ceph_mgr:
+        api_host: '{{ proxmox_api_primary_host }}'
+        node: '{{ item }}'
+        state: present
+      loop: "{{ groups['ceph_mgr'] }}"
+      loop_control:
+        label: '{{ item }}'
       when: bootstrap_configure_ceph | bool
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - ceph
         - ceph-mgr
 
-    - name: Create Ceph manager on this node
-      ansible.builtin.command: pveceph mgr create
-      when:
-        - bootstrap_configure_ceph | bool
-        - not ceph_mgr_dir.stat.exists
+    - name: Create Ceph metadata servers
+      community.proxmox.proxmox_ceph_mds:
+        api_host: '{{ proxmox_api_primary_host }}'
+        node: '{{ item }}'
+        state: present
+      loop: "{{ groups['prox_nodes'] }}"
+      loop_control:
+        label: '{{ item }}'
+      when: bootstrap_configure_cephfs | bool
+      run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
-        - ceph
-        - ceph-mgr
+        - cephfs
 
 - name: Create Ceph OSDs from explicitly defined devices
   hosts: ceph_osd
@@ -314,9 +389,17 @@
   hosts: prox_nodes
   become: true
   gather_facts: false
-  serial: 1
   vars_files:
     - ../vars/bootstrap_cluster.yml
+  vars:
+    proxmox_api_primary_host: '{{ hostvars[proxmox_cluster_primary].ansible_host | default(proxmox_cluster_primary) }}'
+  module_defaults:
+    group/community.proxmox.proxmox:
+      api_user: '{{ lookup("ansible.builtin.env", "PROXMOX_USER") | default("root@pam", true) }}'
+      api_password: '{{ lookup("ansible.builtin.env", "PROXMOX_PASSWORD") | default(omit, true) }}'
+      api_token_id: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_ID") | default(omit, true) }}'
+      api_token_secret: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_SECRET") | default(omit, true) }}'
+      validate_certs: '{{ (lookup("ansible.builtin.env", "PROXMOX_VALIDATE_CERTS") | default("false", true)) | bool }}'
 
   tasks:
     - name: Gather existing Ceph pools
@@ -325,6 +408,7 @@
       changed_when: false
       when: bootstrap_configure_ceph | bool
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - ceph
         - ceph-pool
@@ -335,25 +419,10 @@
         - bootstrap_configure_ceph | bool
         - ceph_pool_name not in (ceph_pool_list.stdout | default('[]') | from_json)
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - ceph
         - ceph-pool
-
-    - name: Check whether the Ceph MDS already exists on this node
-      ansible.builtin.stat:
-        path: '/var/lib/ceph/mds/ceph-{{ inventory_hostname }}'
-      register: ceph_mds_dir
-      when: bootstrap_configure_cephfs | bool
-      tags:
-        - cephfs
-
-    - name: Create the Ceph metadata server on this node
-      ansible.builtin.command: pveceph mds create
-      when:
-        - bootstrap_configure_cephfs | bool
-        - not ceph_mds_dir.stat.exists
-      tags:
-        - cephfs
 
     - name: Refresh pool list before creating CephFS pools
       ansible.builtin.command: ceph osd pool ls --format json
@@ -361,6 +430,7 @@
       changed_when: false
       when: bootstrap_configure_cephfs | bool
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
 
@@ -370,6 +440,7 @@
         - bootstrap_configure_cephfs | bool
         - cephfs_data_pool_name not in (ceph_pool_list_for_cephfs.stdout | default('[]') | from_json)
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
 
@@ -379,6 +450,7 @@
         - bootstrap_configure_cephfs | bool
         - cephfs_metadata_pool_name not in (ceph_pool_list_for_cephfs.stdout | default('[]') | from_json)
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
 
@@ -388,6 +460,7 @@
       changed_when: false
       when: bootstrap_configure_cephfs | bool
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
 
@@ -397,32 +470,25 @@
         - bootstrap_configure_cephfs | bool
         - cephfs_name not in ((ceph_fs_list.stdout | default('[]') | from_json) | map(attribute='name') | list)
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
-
-    - name: Check whether CephFS storage is already registered in Proxmox
-      ansible.builtin.command: 'pvesm status --storage {{ cephfs_storage_name }}'
-      register: cephfs_storage_status
-      failed_when: false
-      changed_when: false
-      when: bootstrap_configure_cephfs | bool
-      run_once: true
-      tags:
-        - cephfs
-        - storage
 
     - name: Add CephFS as shared storage in Proxmox
-      ansible.builtin.command: >-
-        pvesm add cephfs {{ cephfs_storage_name }}
-        --fs-name {{ cephfs_name }}
-        --path {{ cephfs_mount_path }}
-        --content {{ cephfs_content_types }}
-        --nodes {{ groups['prox_nodes'] | join(',') }}
-        --shared 1
-      when:
-        - bootstrap_configure_cephfs | bool
-        - cephfs_storage_status.rc != 0
+      community.proxmox.proxmox_storage:
+        api_host: '{{ proxmox_api_primary_host }}'
+        state: present
+        name: '{{ cephfs_storage_name }}'
+        type: cephfs
+        nodes: "{{ groups['prox_nodes'] }}"
+        content: "{{ cephfs_content_types | split(',') | map('trim') | reject('equalto', '') | list }}"
+        cephfs_options:
+          fs_name: '{{ cephfs_name }}'
+          path: '{{ cephfs_mount_path }}'
+          monhost: "{{ groups['ceph_mon'] | map('extract', hostvars, 'ansible_host') | list }}"
+      when: bootstrap_configure_cephfs | bool
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
         - storage
@@ -436,6 +502,7 @@
         mode: '0700'
       when: bootstrap_configure_cephfs | bool
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
         - shared-ssh
@@ -448,6 +515,7 @@
         - bootstrap_configure_cephfs | bool
         - bootstrap_create_shared_cluster_key | bool
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
         - shared-ssh
@@ -462,6 +530,7 @@
         - bootstrap_configure_cephfs | bool
         - bootstrap_create_shared_cluster_key | bool
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
         - shared-ssh
@@ -476,6 +545,7 @@
         - bootstrap_configure_cephfs | bool
         - bootstrap_create_shared_cluster_key | bool
       run_once: true
+      delegate_to: '{{ proxmox_cluster_primary }}'
       tags:
         - cephfs
         - shared-ssh
