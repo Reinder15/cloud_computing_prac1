@@ -76,8 +76,13 @@ DB_NAME="wordpress_db"
 DB_USER="wpuser"
 DB_PASS="wpuser"
 
-sudo apt-get update -q
-sudo apt-get install -y apache2 mysql-server php php-mysql libapache2-mod-php curl wget
+# First boot may still be running cloud-init apt jobs.
+if command -v cloud-init >/dev/null 2>&1; then
+    sudo cloud-init status --wait || true
+fi
+
+sudo apt-get -o DPkg::Lock::Timeout=300 update -q
+sudo apt-get -o DPkg::Lock::Timeout=300 install -y apache2 mysql-server php php-mysql libapache2-mod-php curl wget
 
 sudo mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
 sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';"
