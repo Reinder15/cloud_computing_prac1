@@ -2,10 +2,13 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 <CLONE_ID> <CLONE_NAME> <IP_LAST_OCTET> [SSH_USER] [SSH_AUTH_KEYS_FILE] [SSH_PRIVATE_KEY]"
+    echo "Usage: $0 <CLONE_ID> <CLONE_NAME> <IP_LAST_OCTET> [SSH_USER] [SSH_AUTH_KEYS_FILE SSH_PRIVATE_KEY]"
+    echo ""
+    echo "If SSH key files are omitted, a per-VM distributable keypair is generated automatically."
     echo ""
     echo "Example:"
     echo "  $0 470 wp-client-470 33 wp470 /mnt/pve/cephfs/.ssh/wp470_authorized_keys /mnt/pve/cephfs/.ssh/wp470_id_rsa"
+    echo "  $0 610 wp-ubuntu-test5 102"
     exit 1
 }
 
@@ -18,8 +21,13 @@ CLONE_ID="$1"
 CLONE_NAME="$2"
 VM_IP="10.24.38.$3"
 SSH_USER="${4:-ubuntu-${CLONE_ID}}"
-SSH_AUTH_KEYS_FILE="${5:-/mnt/pve/cephfs/.ssh/authorized_keys}"
-SSH_PRIVATE_KEY="${6:-/mnt/pve/cephfs/.ssh/id_rsa}"
+SSH_AUTH_KEYS_FILE="${5:-}"
+SSH_PRIVATE_KEY="${6:-}"
+
+SSH_DIR="/mnt/pve/cephfs/.ssh"
+AUTO_KEY_BASE="${SSH_DIR}/${CLONE_NAME}_${CLONE_ID}_id_ed25519"
+AUTO_AUTH_KEYS_FILE="${AUTO_KEY_BASE}_authorized_keys"
+AUTO_KEY_ACTIVE=0
 
 STORAGE="local-lvm"
 GW="10.24.38.1"
@@ -29,6 +37,34 @@ CORES=1
 MEMORY=1024
 NET_RATE=50
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes"
+
+if [ -n "$SSH_AUTH_KEYS_FILE" ] && [ -z "$SSH_PRIVATE_KEY" ]; then
+    echo "If SSH_AUTH_KEYS_FILE is provided, SSH_PRIVATE_KEY must also be provided."
+    exit 1
+fi
+
+if [ -z "$SSH_AUTH_KEYS_FILE" ] && [ -n "$SSH_PRIVATE_KEY" ]; then
+    echo "If SSH_PRIVATE_KEY is provided, SSH_AUTH_KEYS_FILE must also be provided."
+    exit 1
+fi
+
+if [ -z "$SSH_AUTH_KEYS_FILE" ] && [ -z "$SSH_PRIVATE_KEY" ]; then
+    mkdir -p "$SSH_DIR"
+    chmod 700 "$SSH_DIR"
+
+    if [ ! -f "$AUTO_KEY_BASE" ] || [ ! -f "${AUTO_KEY_BASE}.pub" ]; then
+        ssh-keygen -t ed25519 -N "" -f "$AUTO_KEY_BASE" -C "${SSH_USER}@${CLONE_NAME}-${CLONE_ID}" >/dev/null
+        chmod 600 "$AUTO_KEY_BASE"
+        chmod 644 "${AUTO_KEY_BASE}.pub"
+    fi
+
+    cp "${AUTO_KEY_BASE}.pub" "$AUTO_AUTH_KEYS_FILE"
+    chmod 644 "$AUTO_AUTH_KEYS_FILE"
+
+    SSH_PRIVATE_KEY="$AUTO_KEY_BASE"
+    SSH_AUTH_KEYS_FILE="$AUTO_AUTH_KEYS_FILE"
+    AUTO_KEY_ACTIVE=1
+fi
 
 if [ ! -f "$SSH_AUTH_KEYS_FILE" ]; then
     echo "SSH auth keys file not found: $SSH_AUTH_KEYS_FILE"
@@ -50,6 +86,12 @@ qm set "$CLONE_ID" --nameserver "$NAMESERVER"
 # Per-server unique login user with SSH key auth.
 qm set "$CLONE_ID" --ciuser "$SSH_USER" --sshkeys "$SSH_AUTH_KEYS_FILE" --ciupgrade 0
 qm cloudinit update "$CLONE_ID"
+
+if [ "$AUTO_KEY_ACTIVE" -eq 1 ]; then
+    echo "Generated distributable SSH key for this VM:"
+    echo "  Private key: $SSH_PRIVATE_KEY"
+    echo "  Public key:  ${SSH_PRIVATE_KEY}.pub"
+fi
 
 qm start "$CLONE_ID"
 
@@ -114,4 +156,12 @@ echo "  VM:           ${CLONE_ID} (${CLONE_NAME})"
 echo "  Login user:   ${SSH_USER}"
 echo "  Site URL:     http://${VM_IP}"
 echo "  Setup wizard: http://${VM_IP}/wp-admin/install.php"
+echo "  SSH command:  ssh -i <private_key_file> ${SSH_USER}@${VM_IP}"
+echo "  SSH key file: ${SSH_PRIVATE_KEY}"
+echo ""
+echo "SSH private key content:"
+echo "-------------------------------------------------------------------"
+cat "$SSH_PRIVATE_KEY"
+echo "-------------------------------------------------------------------"
+
 echo "==================================================================="
