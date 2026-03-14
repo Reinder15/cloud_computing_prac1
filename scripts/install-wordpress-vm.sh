@@ -143,6 +143,13 @@ EOF
 sudo sshd -t
 sudo systemctl reload ssh
 
+sudo ufw --force reset
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw --force enable
+
 sudo mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
 sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';"
 sudo mysql -e "GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';"
