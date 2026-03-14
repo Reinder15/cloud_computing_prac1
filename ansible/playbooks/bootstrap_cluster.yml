@@ -7,41 +7,8 @@
   hosts: prox_nodes
   become: true
   gather_facts: true
-  vars:
-    proxmox_cluster_name: cluster1
-    proxmox_cluster_primary: node1
-    bootstrap_configure_cluster: false
-    bootstrap_configure_ceph: false
-    bootstrap_create_osds: false
-    bootstrap_configure_cephfs: false
-    bootstrap_create_shared_cluster_key: false
-    ceph_public_network: 10.24.38.0/24
-    ceph_pool_name: ceph-pool
-    cephfs_name: cephfs
-    cephfs_storage_name: cephfs
-    cephfs_mount_path: /mnt/pve/cephfs
-    cephfs_content_types: backup,vztmpl,iso,snippets
-    cephfs_data_pool_name: cephfs_data
-    cephfs_data_pg_num: 32
-    cephfs_metadata_pool_name: cephfs_metadata
-    cephfs_metadata_pg_num: 16
-    shared_cluster_key_path: /mnt/pve/cephfs/.ssh/id_ed25519
-    cluster_hosts_entries:
-      - ip: 10.24.38.2
-        fqdn: node1.klein-mkb-host.nl
-        short: node1
-      - ip: 10.24.38.3
-        fqdn: node2.klein-mkb-host.nl
-        short: node2
-      - ip: 10.24.38.4
-        fqdn: node3.klein-mkb-host.nl
-        short: node3
-    baseline_packages:
-      - curl
-      - git
-      - jq
-      - nvme-cli
-      - python3-apt
+  vars_files:
+    - ../vars/bootstrap_cluster.yml
 
   pre_tasks:
     - name: Verify Proxmox tooling is available
@@ -188,11 +155,8 @@
   become: true
   gather_facts: false
   serial: 1
-  vars:
-    proxmox_cluster_name: cluster1
-    proxmox_cluster_primary: node1
-    proxmox_cluster_primary_ip: '{{ hostvars[proxmox_cluster_primary].ansible_host | default(proxmox_cluster_primary) }}'
-    bootstrap_configure_cluster: false
+  vars_files:
+    - ../vars/bootstrap_cluster.yml
 
   tasks:
     - name: Check whether this node already has cluster configuration
@@ -213,7 +177,7 @@
         - cluster
 
     - name: Join secondary nodes to the cluster over SSH
-      ansible.builtin.command: 'pvecm add {{ proxmox_cluster_primary_ip }} --use_ssh 1'
+      ansible.builtin.command: 'pvecm add {{ hostvars[proxmox_cluster_primary].ansible_host | default(proxmox_cluster_primary) }} --use_ssh 1'
       when:
         - bootstrap_configure_cluster | bool
         - inventory_hostname != proxmox_cluster_primary
@@ -226,10 +190,8 @@
   become: true
   gather_facts: false
   serial: 1
-  vars:
-    proxmox_cluster_primary: node1
-    bootstrap_configure_ceph: false
-    ceph_public_network: 10.24.38.0/24
+  vars_files:
+    - ../vars/bootstrap_cluster.yml
 
   tasks:
     - name: Check whether Ceph packages are already installed
@@ -271,8 +233,8 @@
   become: true
   gather_facts: false
   serial: 1
-  vars:
-    bootstrap_configure_ceph: false
+  vars_files:
+    - ../vars/bootstrap_cluster.yml
 
   tasks:
     - name: Check whether the monitor already exists on this node
@@ -298,8 +260,8 @@
   become: true
   gather_facts: false
   serial: 1
-  vars:
-    bootstrap_configure_ceph: false
+  vars_files:
+    - ../vars/bootstrap_cluster.yml
 
   tasks:
     - name: Check whether the manager already exists on this node
@@ -325,9 +287,8 @@
   become: true
   gather_facts: false
   serial: 1
-  vars:
-    bootstrap_create_osds: false
-    ceph_osd_devices: {}
+  vars_files:
+    - ../vars/bootstrap_cluster.yml
 
   tasks:
     - name: Require a device list before creating OSDs
@@ -354,20 +315,8 @@
   become: true
   gather_facts: false
   serial: 1
-  vars:
-    bootstrap_configure_ceph: false
-    bootstrap_configure_cephfs: false
-    ceph_pool_name: ceph-pool
-    cephfs_name: cephfs
-    cephfs_storage_name: cephfs
-    cephfs_mount_path: /mnt/pve/cephfs
-    cephfs_content_types: backup,vztmpl,iso,snippets
-    cephfs_data_pool_name: cephfs_data
-    cephfs_data_pg_num: 32
-    cephfs_metadata_pool_name: cephfs_metadata
-    cephfs_metadata_pg_num: 16
-    bootstrap_create_shared_cluster_key: false
-    shared_cluster_key_path: /mnt/pve/cephfs/.ssh/id_ed25519
+  vars_files:
+    - ../vars/bootstrap_cluster.yml
 
   tasks:
     - name: Gather existing Ceph pools
