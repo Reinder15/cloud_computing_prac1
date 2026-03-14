@@ -1,0 +1,14 @@
+sudo apt update
+sudo apt install -y ansible
+sudo nano /etc/ansible/hosts
+
+ssh-keygen -t ed25519 -f /mnt/pve/cephfs/.ssh/id_ed25519 -N ""
+
+ssh-copy-id -f -i /mnt/pve/cephfs/.ssh/id_ed25519.pub root@10.24.38.3
+ssh-copy-id -f -i /mnt/pve/cephfs/.ssh/id_ed25519.pub root@10.24.38.4
+
+ssh -o BatchMode=yes -i /mnt/pve/cephfs/.ssh/id_ed25519 root@10.24.38.3 "echo ok"
+ssh -o BatchMode=yes -i /mnt/pve/cephfs/.ssh/id_ed25519 root@10.24.38.4 "echo ok"
+
+ansible all -m ping -u root --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible all -m ping -u root

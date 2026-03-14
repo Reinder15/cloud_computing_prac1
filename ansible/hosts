@@ -1,0 +1,31 @@
+[prox_nodes]
+node1 ansible_host=10.24.38.2 ansible_connection=local
+node2 ansible_host=10.24.38.3
+node3 ansible_host=10.24.38.4
+
+[ceph_mon]
+node1
+node2
+node3
+
+[ceph_mgr]
+node1
+node2
+node3
+
+[ceph_osd]
+node1
+node2
+node3
+
+[monitor_server]
+#monitor1 ansible_host=10.24.38.20
+
+[lxc_wordpress]
+# Komt later
+
+[vm_wordpress]
+# Komt later
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3

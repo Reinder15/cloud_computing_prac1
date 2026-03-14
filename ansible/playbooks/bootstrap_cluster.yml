@@ -1,0 +1,480 @@
+# Safe defaults:
+# - baseline tasks always run
+# - cluster/Ceph/CephFS stages are opt-in via extra vars
+# - OSD creation is destructive and stays disabled until ceph_osd_devices is set explicitly
+
+- name: Bootstrap Proxmox baseline on all nodes
+  hosts: prox_nodes
+  become: true
+  gather_facts: true
+  vars:
+    proxmox_cluster_name: cluster1
+    proxmox_cluster_primary: node1
+    bootstrap_configure_cluster: false
+    bootstrap_configure_ceph: false
+    bootstrap_create_osds: false
+    bootstrap_configure_cephfs: false
+    bootstrap_create_shared_cluster_key: false
+    ceph_public_network: 10.24.38.0/24
+    ceph_pool_name: ceph-pool
+    cephfs_name: cephfs
+    cephfs_storage_name: cephfs
+    cephfs_mount_path: /mnt/pve/cephfs
+    cephfs_content_types: backup,vztmpl,iso,snippets
+    cephfs_data_pool_name: cephfs_data
+    cephfs_data_pg_num: 32
+    cephfs_metadata_pool_name: cephfs_metadata
+    cephfs_metadata_pg_num: 16
+    shared_cluster_key_path: /mnt/pve/cephfs/.ssh/id_ed25519
+    cluster_hosts_entries:
+      - ip: 10.24.38.2
+        fqdn: node1.klein-mkb-host.nl
+        short: node1
+      - ip: 10.24.38.3
+        fqdn: node2.klein-mkb-host.nl
+        short: node2
+      - ip: 10.24.38.4
+        fqdn: node3.klein-mkb-host.nl
+        short: node3
+    baseline_packages:
+      - curl
+      - git
+      - jq
+      - nvme-cli
+      - python3-apt
+
+  pre_tasks:
+    - name: Verify Proxmox tooling is available
+      ansible.builtin.command: pveversion
+      changed_when: false
+      tags:
+        - always
+
+    - name: Ensure Ceph stages are only enabled together
+      ansible.builtin.assert:
+        that:
+          - not (bootstrap_configure_cephfs | bool) or (bootstrap_configure_ceph | bool)
+          - not (bootstrap_create_osds | bool) or (bootstrap_configure_ceph | bool)
+        fail_msg: Enable bootstrap_configure_ceph=true before enabling CephFS or OSD creation.
+      run_once: true
+      tags:
+        - always
+
+  tasks:
+    - name: Ensure localhost entry matches cluster notes
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.0\.1\s+'
+        line: 127.0.0.1 localhost.localdomain localhost
+        state: present
+      tags:
+        - baseline
+        - hosts
+
+    - name: Ensure cluster node hostnames resolve locally
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^{{ item.ip | regex_escape }}\s+'
+        line: '{{ item.ip }} {{ item.fqdn }} {{ item.short }}'
+        state: present
+      loop: '{{ cluster_hosts_entries }}'
+      tags:
+        - baseline
+        - hosts
+
+    - name: Remove Proxmox enterprise repository
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/pve-enterprise.sources
+        state: absent
+      tags:
+        - baseline
+        - repos
+
+    - name: Remove Ceph enterprise repository
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/ceph.sources
+        state: absent
+      tags:
+        - baseline
+        - repos
+
+    - name: Configure Proxmox no-subscription repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/pve-no-subscription.sources
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          Types: deb
+          URIs: http://download.proxmox.com/debian/pve
+          Suites: {{ ansible_distribution_release }}
+          Components: pve-no-subscription
+          Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+      tags:
+        - baseline
+        - repos
+
+    - name: Refresh apt metadata and apply dist-upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        upgrade: dist
+      tags:
+        - baseline
+        - update
+
+    - name: Install baseline packages required by later stages
+      ansible.builtin.apt:
+        name: '{{ baseline_packages }}'
+        state: present
+      tags:
+        - baseline
+        - packages
+
+- name: Create or join the Proxmox cluster
+  hosts: prox_nodes
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    proxmox_cluster_name: cluster1
+    proxmox_cluster_primary: node1
+    proxmox_cluster_primary_ip: '{{ hostvars[proxmox_cluster_primary].ansible_host | default(proxmox_cluster_primary) }}'
+    bootstrap_configure_cluster: false
+
+  tasks:
+    - name: Check whether this node already has cluster configuration
+      ansible.builtin.stat:
+        path: /etc/pve/corosync.conf
+      register: corosync_conf
+      when: bootstrap_configure_cluster | bool
+      tags:
+        - cluster
+
+    - name: Create cluster on the primary node
+      ansible.builtin.command: 'pvecm create {{ proxmox_cluster_name }}'
+      when:
+        - bootstrap_configure_cluster | bool
+        - inventory_hostname == proxmox_cluster_primary
+        - not corosync_conf.stat.exists
+      tags:
+        - cluster
+
+    - name: Join secondary nodes to the cluster over SSH
+      ansible.builtin.command: 'pvecm add {{ proxmox_cluster_primary_ip }} --use_ssh 1'
+      when:
+        - bootstrap_configure_cluster | bool
+        - inventory_hostname != proxmox_cluster_primary
+        - not corosync_conf.stat.exists
+      tags:
+        - cluster
+
+- name: Install and initialize Ceph
+  hosts: prox_nodes
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    proxmox_cluster_primary: node1
+    bootstrap_configure_ceph: false
+    ceph_public_network: 10.24.38.0/24
+
+  tasks:
+    - name: Check whether Ceph packages are already installed
+      ansible.builtin.command: dpkg-query -W -f=${Status} ceph-base
+      register: ceph_base_pkg
+      failed_when: false
+      changed_when: false
+      when: bootstrap_configure_ceph | bool
+      tags:
+        - ceph
+
+    - name: Install Ceph packages from the Proxmox no-subscription repository
+      ansible.builtin.command: pveceph install --repository no-subscription
+      when:
+        - bootstrap_configure_ceph | bool
+        - ceph_base_pkg.rc != 0
+      tags:
+        - ceph
+
+    - name: Check whether Ceph is already initialized
+      ansible.builtin.stat:
+        path: /etc/pve/ceph.conf
+      register: ceph_conf
+      when: bootstrap_configure_ceph | bool
+      tags:
+        - ceph
+
+    - name: Initialize the Ceph cluster on the primary node
+      ansible.builtin.command: 'pveceph init --network {{ ceph_public_network }}'
+      when:
+        - bootstrap_configure_ceph | bool
+        - inventory_hostname == proxmox_cluster_primary
+        - not ceph_conf.stat.exists
+      tags:
+        - ceph
+
+- name: Create Ceph monitors
+  hosts: ceph_mon
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    bootstrap_configure_ceph: false
+
+  tasks:
+    - name: Check whether the monitor already exists on this node
+      ansible.builtin.stat:
+        path: '/var/lib/ceph/mon/ceph-{{ inventory_hostname }}'
+      register: ceph_mon_dir
+      when: bootstrap_configure_ceph | bool
+      tags:
+        - ceph
+        - ceph-mon
+
+    - name: Create Ceph monitor on this node
+      ansible.builtin.command: pveceph mon create
+      when:
+        - bootstrap_configure_ceph | bool
+        - not ceph_mon_dir.stat.exists
+      tags:
+        - ceph
+        - ceph-mon
+
+- name: Create Ceph managers
+  hosts: ceph_mgr
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    bootstrap_configure_ceph: false
+
+  tasks:
+    - name: Check whether the manager already exists on this node
+      ansible.builtin.stat:
+        path: '/var/lib/ceph/mgr/ceph-{{ inventory_hostname }}'
+      register: ceph_mgr_dir
+      when: bootstrap_configure_ceph | bool
+      tags:
+        - ceph
+        - ceph-mgr
+
+    - name: Create Ceph manager on this node
+      ansible.builtin.command: pveceph mgr create
+      when:
+        - bootstrap_configure_ceph | bool
+        - not ceph_mgr_dir.stat.exists
+      tags:
+        - ceph
+        - ceph-mgr
+
+- name: Create Ceph OSDs from explicitly defined devices
+  hosts: ceph_osd
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    bootstrap_create_osds: false
+    ceph_osd_devices: {}
+
+  tasks:
+    - name: Require a device list before creating OSDs
+      ansible.builtin.assert:
+        that:
+          - ceph_osd_devices is mapping
+          - ceph_osd_devices.get(inventory_hostname, []) | length > 0
+        fail_msg: 'Define ceph_osd_devices for {{ inventory_hostname }} before running with bootstrap_create_osds=true.'
+      when: bootstrap_create_osds | bool
+      tags:
+        - ceph
+        - ceph-osd
+
+    - name: Create Ceph OSDs on requested devices
+      ansible.builtin.command: 'pveceph osd create {{ item }}'
+      loop: '{{ ceph_osd_devices.get(inventory_hostname, []) }}'
+      when: bootstrap_create_osds | bool
+      tags:
+        - ceph
+        - ceph-osd
+
+- name: Create shared Ceph pool and CephFS storage
+  hosts: prox_nodes
+  become: true
+  gather_facts: false
+  serial: 1
+  vars:
+    bootstrap_configure_ceph: false
+    bootstrap_configure_cephfs: false
+    ceph_pool_name: ceph-pool
+    cephfs_name: cephfs
+    cephfs_storage_name: cephfs
+    cephfs_mount_path: /mnt/pve/cephfs
+    cephfs_content_types: backup,vztmpl,iso,snippets
+    cephfs_data_pool_name: cephfs_data
+    cephfs_data_pg_num: 32
+    cephfs_metadata_pool_name: cephfs_metadata
+    cephfs_metadata_pg_num: 16
+    bootstrap_create_shared_cluster_key: false
+    shared_cluster_key_path: /mnt/pve/cephfs/.ssh/id_ed25519
+
+  tasks:
+    - name: Gather existing Ceph pools
+      ansible.builtin.command: ceph osd pool ls --format json
+      register: ceph_pool_list
+      changed_when: false
+      when: bootstrap_configure_ceph | bool
+      run_once: true
+      tags:
+        - ceph
+        - ceph-pool
+
+    - name: Create the shared Ceph pool for VM and CT storage
+      ansible.builtin.command: 'pveceph pool create {{ ceph_pool_name }} --add_storages'
+      when:
+        - bootstrap_configure_ceph | bool
+        - ceph_pool_name not in (ceph_pool_list.stdout | default('[]') | from_json)
+      run_once: true
+      tags:
+        - ceph
+        - ceph-pool
+
+    - name: Check whether the Ceph MDS already exists on this node
+      ansible.builtin.stat:
+        path: '/var/lib/ceph/mds/ceph-{{ inventory_hostname }}'
+      register: ceph_mds_dir
+      when: bootstrap_configure_cephfs | bool
+      tags:
+        - cephfs
+
+    - name: Create the Ceph metadata server on this node
+      ansible.builtin.command: pveceph mds create
+      when:
+        - bootstrap_configure_cephfs | bool
+        - not ceph_mds_dir.stat.exists
+      tags:
+        - cephfs
+
+    - name: Refresh pool list before creating CephFS pools
+      ansible.builtin.command: ceph osd pool ls --format json
+      register: ceph_pool_list_for_cephfs
+      changed_when: false
+      when: bootstrap_configure_cephfs | bool
+      run_once: true
+      tags:
+        - cephfs
+
+    - name: Create the CephFS data pool
+      ansible.builtin.command: 'ceph osd pool create {{ cephfs_data_pool_name }} {{ cephfs_data_pg_num }}'
+      when:
+        - bootstrap_configure_cephfs | bool
+        - cephfs_data_pool_name not in (ceph_pool_list_for_cephfs.stdout | default('[]') | from_json)
+      run_once: true
+      tags:
+        - cephfs
+
+    - name: Create the CephFS metadata pool
+      ansible.builtin.command: 'ceph osd pool create {{ cephfs_metadata_pool_name }} {{ cephfs_metadata_pg_num }}'
+      when:
+        - bootstrap_configure_cephfs | bool
+        - cephfs_metadata_pool_name not in (ceph_pool_list_for_cephfs.stdout | default('[]') | from_json)
+      run_once: true
+      tags:
+        - cephfs
+
+    - name: Gather existing Ceph filesystems
+      ansible.builtin.command: ceph fs ls --format json
+      register: ceph_fs_list
+      changed_when: false
+      when: bootstrap_configure_cephfs | bool
+      run_once: true
+      tags:
+        - cephfs
+
+    - name: Create the Ceph filesystem
+      ansible.builtin.command: 'ceph fs new {{ cephfs_name }} {{ cephfs_metadata_pool_name }} {{ cephfs_data_pool_name }}'
+      when:
+        - bootstrap_configure_cephfs | bool
+        - cephfs_name not in ((ceph_fs_list.stdout | default('[]') | from_json) | map(attribute='name') | list)
+      run_once: true
+      tags:
+        - cephfs
+
+    - name: Check whether CephFS storage is already registered in Proxmox
+      ansible.builtin.command: 'pvesm status --storage {{ cephfs_storage_name }}'
+      register: cephfs_storage_status
+      failed_when: false
+      changed_when: false
+      when: bootstrap_configure_cephfs | bool
+      run_once: true
+      tags:
+        - cephfs
+        - storage
+
+    - name: Add CephFS as shared storage in Proxmox
+      ansible.builtin.command: >-
+        pvesm add cephfs {{ cephfs_storage_name }}
+        --fs-name {{ cephfs_name }}
+        --path {{ cephfs_mount_path }}
+        --content {{ cephfs_content_types }}
+        --nodes {{ groups['prox_nodes'] | join(',') }}
+        --shared 1
+      when:
+        - bootstrap_configure_cephfs | bool
+        - cephfs_storage_status.rc != 0
+      run_once: true
+      tags:
+        - cephfs
+        - storage
+
+    - name: Ensure shared SSH directory exists on CephFS
+      ansible.builtin.file:
+        path: '{{ cephfs_mount_path }}/.ssh'
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      when: bootstrap_configure_cephfs | bool
+      run_once: true
+      tags:
+        - cephfs
+        - shared-ssh
+
+    - name: Generate shared deployment SSH key on CephFS
+      ansible.builtin.command: 'ssh-keygen -t ed25519 -f {{ shared_cluster_key_path }} -N ""'
+      args:
+        creates: '{{ shared_cluster_key_path }}'
+      when:
+        - bootstrap_configure_cephfs | bool
+        - bootstrap_create_shared_cluster_key | bool
+      run_once: true
+      tags:
+        - cephfs
+        - shared-ssh
+
+    - name: Ensure shared private key permissions are strict
+      ansible.builtin.file:
+        path: '{{ shared_cluster_key_path }}'
+        owner: root
+        group: root
+        mode: '0600'
+      when:
+        - bootstrap_configure_cephfs | bool
+        - bootstrap_create_shared_cluster_key | bool
+      run_once: true
+      tags:
+        - cephfs
+        - shared-ssh
+
+    - name: Ensure shared public key is world-readable
+      ansible.builtin.file:
+        path: '{{ shared_cluster_key_path }}.pub'
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - bootstrap_configure_cephfs | bool
+        - bootstrap_create_shared_cluster_key | bool
+      run_once: true
+      tags:
+        - cephfs
+        - shared-ssh
