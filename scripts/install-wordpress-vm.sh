@@ -37,6 +37,7 @@ CORES=1
 MEMORY=1024
 NET_RATE=50
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes"
+ROOT_SSH_ALLOW_FROM="10.24.38.2,10.24.38.3,10.24.38.4"
 
 if [ -n "$SSH_AUTH_KEYS_FILE" ] && [ -z "$SSH_PRIVATE_KEY" ]; then
     echo "If SSH_AUTH_KEYS_FILE is provided, SSH_PRIVATE_KEY must also be provided."
@@ -111,8 +112,11 @@ done
 echo ""
 echo "SSH ready for user '$SSH_USER'. Installing WordPress..."
 
-ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "$SSH_USER@${VM_IP}" bash << 'REMOTE'
+ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "$SSH_USER@${VM_IP}" bash -s -- "$SSH_USER" "$ROOT_SSH_ALLOW_FROM" << 'REMOTE'
 set -e
+
+VM_LOGIN_USER="$1"
+ROOT_SSH_ALLOW_FROM="$2"
 
 DB_NAME="wordpress_db"
 DB_USER="wpuser"
@@ -125,6 +129,36 @@ fi
 
 sudo apt-get -o DPkg::Lock::Timeout=300 update -q
 sudo apt-get -o DPkg::Lock::Timeout=300 install -y apache2 mysql-server php php-mysql libapache2-mod-php curl wget
+
+VM_LOGIN_HOME="$(getent passwd "$VM_LOGIN_USER" | cut -d: -f6 || true)"
+if [ -z "$VM_LOGIN_HOME" ]; then
+    echo "Could not determine home directory for user ${VM_LOGIN_USER}"
+    exit 1
+fi
+
+USER_AUTH_KEYS="${VM_LOGIN_HOME}/.ssh/authorized_keys"
+if [ ! -f "$USER_AUTH_KEYS" ]; then
+    echo "Missing expected SSH key file for user ${VM_LOGIN_USER}: ${USER_AUTH_KEYS}"
+    exit 1
+fi
+
+sudo install -d -m 700 /root/.ssh
+sudo cp "$USER_AUTH_KEYS" /root/.ssh/authorized_keys
+sudo chown root:root /root/.ssh/authorized_keys
+sudo chmod 600 /root/.ssh/authorized_keys
+
+sudo install -d -m 755 /etc/ssh/sshd_config.d
+sudo tee /etc/ssh/sshd_config.d/99-root-login-restrictions.conf >/dev/null <<EOF
+# Disable direct root SSH logins by default.
+PermitRootLogin no
+
+# Allow root SSH only from trusted Proxmox cluster nodes and only with SSH keys.
+Match Address ${ROOT_SSH_ALLOW_FROM} User root
+    PermitRootLogin prohibit-password
+EOF
+
+sudo sshd -t
+sudo systemctl reload ssh
 
 sudo mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
 sudo mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';"
