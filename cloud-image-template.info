@@ -48,3 +48,29 @@ qm set 470 --core 1 --memory 1024 --balloon 0
 qm set 470 --nameserver 8.8.8.8
 qm start 470
 
+
+
+
+sudo apt install -y apache2 mysql-server php php-mysql curl wget
+
+sudo mysql
+# CREATE DATABASE wordpress_db;
+# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'wpuser';
+# GRANT ALL PRIVILEGES ON wordpress_db.* TO 'wpuser'@'localhost';
+# FLUSH PRIVILEGES;
+# EXIT;
+
+cd /tmp
+wget https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+sudo rm -f /var/www/html/index.html
+sudo cp -r wordpress/* /var/www/html/
+sudo chown -R www-data:www-data /var/www/html/
+sudo chmod -R 755 /var/www/html/
+
+cd /var/www/html
+sudo cp wp-config-sample.php wp-config.php
+sudo nano wp-config.php
+# Pas aan: DB_NAME=wordpress_db, DB_USER=wpuser, DB_PASSWORD=wpuser
+
+sudo systemctl restart apache2
