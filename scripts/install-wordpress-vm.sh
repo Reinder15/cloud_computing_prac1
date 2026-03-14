@@ -37,7 +37,7 @@ CORES=1
 MEMORY=1024
 NET_RATE=50
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes"
-ROOT_SSH_ALLOW_FROM="10.24.38.2,10.24.38.3,10.24.38.4"
+PROXMOX_NODE_IP="$(hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^10\.24\.38\./ { print; exit }')"
 
 if [ -n "$SSH_AUTH_KEYS_FILE" ] && [ -z "$SSH_PRIVATE_KEY" ]; then
     echo "If SSH_AUTH_KEYS_FILE is provided, SSH_PRIVATE_KEY must also be provided."
@@ -46,6 +46,11 @@ fi
 
 if [ -z "$SSH_AUTH_KEYS_FILE" ] && [ -n "$SSH_PRIVATE_KEY" ]; then
     echo "If SSH_PRIVATE_KEY is provided, SSH_AUTH_KEYS_FILE must also be provided."
+    exit 1
+fi
+
+if [ "$SSH_USER" = "root" ]; then
+    echo "SSH_USER cannot be 'root'. Use a dedicated non-root user."
     exit 1
 fi
 
@@ -112,11 +117,10 @@ done
 echo ""
 echo "SSH ready for user '$SSH_USER'. Installing WordPress..."
 
-ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "$SSH_USER@${VM_IP}" bash -s -- "$SSH_USER" "$ROOT_SSH_ALLOW_FROM" << 'REMOTE'
+ssh $SSH_OPTS -i "$SSH_PRIVATE_KEY" "$SSH_USER@${VM_IP}" bash -s -- "$SSH_USER" << 'REMOTE'
 set -e
 
 VM_LOGIN_USER="$1"
-ROOT_SSH_ALLOW_FROM="$2"
 
 DB_NAME="wordpress_db"
 DB_USER="wpuser"
@@ -130,31 +134,10 @@ fi
 sudo apt-get -o DPkg::Lock::Timeout=300 update -q
 sudo apt-get -o DPkg::Lock::Timeout=300 install -y apache2 mysql-server php php-mysql libapache2-mod-php curl wget
 
-VM_LOGIN_HOME="$(getent passwd "$VM_LOGIN_USER" | cut -d: -f6 || true)"
-if [ -z "$VM_LOGIN_HOME" ]; then
-    echo "Could not determine home directory for user ${VM_LOGIN_USER}"
-    exit 1
-fi
-
-USER_AUTH_KEYS="${VM_LOGIN_HOME}/.ssh/authorized_keys"
-if [ ! -f "$USER_AUTH_KEYS" ]; then
-    echo "Missing expected SSH key file for user ${VM_LOGIN_USER}: ${USER_AUTH_KEYS}"
-    exit 1
-fi
-
-sudo install -d -m 700 /root/.ssh
-sudo cp "$USER_AUTH_KEYS" /root/.ssh/authorized_keys
-sudo chown root:root /root/.ssh/authorized_keys
-sudo chmod 600 /root/.ssh/authorized_keys
-
 sudo install -d -m 755 /etc/ssh/sshd_config.d
-sudo tee /etc/ssh/sshd_config.d/99-root-login-restrictions.conf >/dev/null <<EOF
-# Disable direct root SSH logins by default.
+sudo tee /etc/ssh/sshd_config.d/99-disable-root-ssh.conf >/dev/null <<EOF
+# Disable direct root SSH logins.
 PermitRootLogin no
-
-# Allow root SSH only from trusted Proxmox cluster nodes and only with SSH keys.
-Match Address ${ROOT_SSH_ALLOW_FROM} User root
-    PermitRootLogin prohibit-password
 EOF
 
 sudo sshd -t
@@ -181,6 +164,12 @@ sudo sed -i "s/password_here/${DB_PASS}/" wp-config.php
 
 sudo systemctl enable apache2
 sudo systemctl restart apache2
+
+# Ubuntu cloud images typically grant the cloud-init user sudo. Remove that access.
+sudo rm -f /etc/sudoers.d/90-cloud-init-users
+if getent group sudo >/dev/null 2>&1; then
+    sudo gpasswd -d "$VM_LOGIN_USER" sudo >/dev/null 2>&1 || true
+fi
 REMOTE
 
 echo ""
@@ -192,10 +181,8 @@ echo "  Site URL:     http://${VM_IP}"
 echo "  Setup wizard: http://${VM_IP}/wp-admin/install.php"
 echo "  SSH command:  ssh -i <private_key_file> ${SSH_USER}@${VM_IP}"
 echo "  SSH key file: ${SSH_PRIVATE_KEY}"
-echo ""
-echo "SSH private key content:"
-echo "-------------------------------------------------------------------"
-cat "$SSH_PRIVATE_KEY"
-echo "-------------------------------------------------------------------"
+if [ -n "$PROXMOX_NODE_IP" ]; then
+    echo "  SCP command:  scp root@${PROXMOX_NODE_IP}:${SSH_PRIVATE_KEY} ./$(basename "$SSH_PRIVATE_KEY")"
+fi
 
 echo "==================================================================="
