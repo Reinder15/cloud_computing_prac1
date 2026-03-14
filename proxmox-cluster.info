@@ -1,0 +1,146 @@
+
+subnet: 10.24.38.x/24
+VLAN: 2438
+Default Gateway: 10.24.38.1/24
+
+35448901 (354489-vm1):
+hostname: node1.klein-mkb-host.nl
+IP adres: 10.24.38.2
+root - Strike1023
+
+Tailscale entry: https://10.24.38.2:8006/#v1:0:18:4:::::::
+root - Strike1023
+
+
+35448902 (354489-vm2):
+hostname: node2.klein-mkb-host.nl
+IP adres: 10.24.38.3
+root - Strike1023
+
+35448903 (354489-vm3):
+hostname: node3.klein-mkb-host.nl
+IP adres: 10.24.38.4
+root - Strike1023
+
+
+Voor setup:
+1. ls /etc/apt/sources.list.d/
+Output zou moeten zijn:
+ceph.sources  debian.sources  pve-enterprise.sources
+2. rm /etc/apt/sources.list.d/pve-enterprise.sources
+3. rm /etc/apt/sources.list.d/ceph.sources
+3. apt update
+4. nano /etc/hosts
+Voeg toe:
+127.0.0.1 localhost.localdomain localhost
+10.24.38.2 node1.klein-mkb-host.nl node1
+10.24.38.3 node2.klein-mkb-host.nl node2
+10.24.38.4 node3.klein-mkb-host.nl node3
+
+
+Cluster gemaakt.
+https://pve.proxmox.com/wiki/Cluster_Manager
+op node 1: 
+    pvecm create cluster1
+Vervolgens voor node2 en node3:
+    pvecm add 10.24.38.2
+
+Installeer ceph:
+https://pve.proxmox.com/wiki/Deploy_Hyper-Converged_Ceph_Cluster
+1. pveceph install --repository no-subscription
+2. pveceph init --network 10.24.38.0/24
+
+STAP 1: FIX NVME-CLI PROBLEEM
+Op alle 3 nodes uitvoeren:
+# Voeg Debian repositories toe 
+cat /etc/apt/sources.list.d/debian.sources
+# Zo niet, dan:
+# echo "deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware" > /etc/apt/sources.list
+
+# Update en installeer nvme-cli
+apt update
+apt install nvme-cli
+
+# Installeer Ceph
+pveceph install --repository no-subscription
+
+STAP 2: INITIALISEER CEPH (alleen op node1)
+pveceph init --network 10.24.38.0/24
+
+STAP 3: MAAK CEPH MONITORS AAN
+Op alle 3 nodes:
+pveceph mon create
+
+STAP 4: MAAK CEPH MANAGERS AAN
+Op alle 3 nodes:
+pveceph mgr create
+
+STAP 5: CREËER OSD'S (op alle nodes)
+# Check beschikbare disks
+lsblk
+pvesm status
+
+# Maak partitie met parted zoals hierboven beschreven
+parted /dev/sdX  # of de juiste disk
+(parted) print free
+(parted) mkpart OSD1 <start> <end>
+(parted) quit
+
+# Creëer OSD
+pveceph osd create /dev/sda4  # gebruik de nieuwe partitie
+
+STAP 6: MAAK CEPH POOL AAN (op node1)
+# Voor VM's en containers
+pveceph pool create ceph-pool --add_storages
+
+STAP 6B: SETUP CEPHFS (Shared filesystem across nodes)
+# Maak Metadata Servers (MDS) aan op alle 3 nodes
+# Op node1:
+pveceph mds create
+# Op node2:
+pveceph mds create
+# Op node3:
+pveceph mds create
+
+# Maak CephFS pools en filesystem (op node1)
+ceph osd pool create cephfs_data 32
+ceph osd pool create cephfs_metadata 16
+ceph fs new cephfs cephfs_metadata cephfs_data
+
+# Voeg toe aan Proxmox storage
+pvesm add cephfs cephfs --path /mnt/pve/cephfs --content backup,vztmpl,iso,snippets --nodes node1,node2,node3
+
+# Verify
+ceph mds stat
+ceph fs ls
+ls -la /mnt/pve/cephfs
+
+# Clone git repo naar shared storage
+cd /mnt/pve/cephfs
+git clone https://github.com/Reinder15/cloud_computing_prac1.git
+# Nu toegankelijk op alle nodes via: /mnt/pve/cephfs/cloud_computing_prac1
+
+STAP 6C: SSH KEY MANAGEMENT (Voor multi-node VM deployment)
+# Maak SSH keys aan in CephFS shared storage zodat je vanaf elke node kunt deployen
+# Dit is belangrijk voor VM automation scripts die SSH keys nodig hebben
+
+# Optie 1: Nieuwe SSH key genereren in shared storage
+mkdir -p /mnt/pve/cephfs/.ssh
+chmod 700 /mnt/pve/cephfs/.ssh
+ssh-keygen -t rsa -b 4096 -f /mnt/pve/cephfs/.ssh/id_rsa -N ""
+chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
+chmod 644 /mnt/pve/cephfs/.ssh/id_rsa.pub
+
+# Optie 2: Kopieer bestaande key naar shared storage
+# cp ~/.ssh/id_rsa /mnt/pve/cephfs/.ssh/id_rsa
+# cp ~/.ssh/id_rsa.pub /mnt/pve/cephfs/.ssh/id_rsa.pub
+# chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
+# chmod 644 /mnt/pve/cephfs/.ssh/id_rsa.pub
+
+# Verify: Key moet nu toegankelijk zijn op alle nodes
+ls -la /mnt/pve/cephfs/.ssh/
+# Output: -rw------- 1 root root 3243 ... id_rsa
+#         -rw-r--r-- 1 root root  743 ... id_rsa.pub
+
+# Deze key wordt gebruikt door deployment scripts voor SSH authenticatie naar VMs
+# Scripts gebruiken: ssh -i /mnt/pve/cephfs/.ssh/id_rsa user@host

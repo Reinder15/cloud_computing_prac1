@@ -1,0 +1,157 @@
+# Download Ubuntu/Debian ISO
+# Maak VM met minimaal 2GB RAM
+# Installeer OS manueel
+# Installeer wordpress manueel zoals in LXC, maar dan op VM
+# Installeer cloud-init (zie verderop)
+
+Op node1:
+cd /var/lib/vz/template/iso
+wget https://releases.ubuntu.com/22.04/ubuntu-22.04.5-live-server-amd64.iso
+
+# Optie A: MANUELE INSTALLATIE (simpel en betrouwbaar)
+# https://pve.proxmox.com/pve-docs/qm.1.html
+qm create 500 \
+  --name wordpress-crm1 \
+  --memory 4096 \
+  --cores 2 \
+  --net0 virtio,bridge=vmbr0 \
+  --scsihw virtio-scsi-pci \
+  --scsi0 ceph-pool:30 \
+  --ide2 local:iso/ubuntu-22.04.5-live-server-amd64.iso,media=cdrom \
+  --boot "order=scsi0;ide2" \
+  --ostype l26 \
+  --onboot 1
+
+qm start 500
+
+# Nu installeren via Proxmox GUI Console:
+# 1. Proxmox GUI -> VM 200 -> Console
+# 2. Volg Ubuntu installer:
+#    - Language: English
+#    - Keyboard: English (US)
+#    - Install Ubuntu Server
+#    - Network: Manual
+#      - Subnet: 10.24.38.0/24
+#      - Address: 10.24.38.30
+#      - Gateway: 10.24.38.1
+#      - Name servers: 8.8.8.8
+#    - Proxy: (leeg)
+#    - Mirror: (default)
+#    - Storage: Use entire disk
+#    - Profile:
+#      - Name: client
+#      - Server: wordpress-crm-prod
+#      - Username: client
+#      - Password: SecurePass123!   
+#    - SSH: Install OpenSSH server (✓)
+#    - Snaps: (skip)
+#    - Reboot
+# 3. Na reboot: ssh client@10.24.38.30
+
+# Installeer WordPress in VM (na SSH login):
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y apache2 mysql-server php libapache2-mod-php \
+    php-mysql php-curl php-gd php-mbstring php-xml php-xmlrpc php-zip curl wget
+
+sudo mysql
+# CREATE DATABASE wordpress_db;
+# CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'wpuser';
+# GRANT ALL PRIVILEGES ON wordpress_db.* TO 'wpuser'@'localhost';
+# FLUSH PRIVILEGES;
+# EXIT;
+
+cd /tmp
+wget https://wordpress.org/latest.tar.gz
+tar -xzf latest.tar.gz
+sudo rm -f /var/www/html/index.html
+sudo cp -r wordpress/* /var/www/html/
+sudo chown -R www-data:www-data /var/www/html/
+sudo chmod -R 755 /var/www/html/
+
+cd /var/www/html
+sudo cp wp-config-sample.php wp-config.php
+sudo nano wp-config.php
+# Pas aan: DB_NAME=wordpress_db, DB_USER=wpuser, DB_PASSWORD=SecurePass123!
+
+sudo systemctl restart apache2
+
+# Test: http://10.24.38.60
+
+# STAP 8.1: INSTALLEER CLOUD-INIT (BELANGRIJK VOOR TEMPLATE!)
+# Dit moet gebeuren VOOR het maken van de template
+sudo apt update
+sudo apt install -y cloud-init
+
+# Configureer cloud-init datasources voor Proxmox
+sudo cat > /etc/cloud/cloud.cfg.d/99-proxmox.cfg << 'EOF'
+datasource_list: [ NoCloud, ConfigDrive ]
+ssh_pwauth: true
+chpasswd:
+  expire: false
+disable_root: false
+EOF
+
+sudo cat > /etc/ssh/sshd_config << 'EOF'
+# Standaard SSH configuratie
+PermitRootLogin yes
+PasswordAuthentication yes
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM yes
+X11Forwarding yes
+PrintMotd no
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/openssh/sftp-server
+EOF
+
+sudo systemctl restart sshd
+
+# Configureer passwordless sudo voor deployment script
+echo "client ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/client
+sudo chmod 0440 /etc/sudoers.d/client
+
+# Enable cloud-init services
+sudo systemctl enable cloud-init cloud-init-local cloud-config cloud-final
+
+# Clean cloud-init state (klaar voor template)
+sudo cloud-init clean --logs --seed
+
+# Shutdown VM (klaar voor template conversie)
+sudo shutdown -h now
+
+# STAP 8.2: VOEG CLOUD-INIT DRIVE TOE EN MAAK TEMPLATE
+# Na shutdown, voer uit op Proxmox host:
+
+# BELANGRIJK: Gebruik shared SSH key in CephFS voor toegang vanaf alle nodes
+# Genereer SSH key in shared storage als je die nog niet hebt:
+mkdir -p /mnt/pve/cephfs/.ssh
+chmod 700 /mnt/pve/cephfs/.ssh
+ssh-keygen -t rsa -b 4096 -f /mnt/pve/cephfs/.ssh/id_rsa -N ""
+chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
+chmod 644 /mnt/pve/cephfs/.ssh/id_rsa.pub
+
+# Of kopieer bestaande key naar shared storage:
+# cp ~/.ssh/id_rsa /mnt/pve/cephfs/.ssh/id_rsa
+# cp ~/.ssh/id_rsa.pub /mnt/pve/cephfs/.ssh/id_rsa.pub
+# chmod 600 /mnt/pve/cephfs/.ssh/id_rsa
+
+# Voeg cloud-init drive toe
+qm set 500 --ide2 ceph-pool:cloudinit
+qm set 500 --nameserver 8.8.8.8
+qm set 500 --ciuser client
+
+# Configureer SSH key authenticatie (AANBEVOLEN):
+qm set 500 --sshkeys /mnt/pve/cephfs/.ssh/id_rsa.pub
+
+# OF gebruik password (minder veilig):
+# qm set 500 --cipassword SecurePass123!
+
+# BELANGRIJK: Stel GEEN ipconfig0 in op de template!
+# Dit wordt automatisch geconfigureerd per clone door het deployment script.
+# Elke clone krijgt zijn eigen IP via: qm set ${VMID} --ipconfig0 ip=X.X.X.X/24,gw=...
+
+# Maak er nu een template van:
+qm template 500
+
+# Test: Deploy nieuwe VMs met automatische netwerk configuratie!
+bash /mnt/pve/cephfs/cloud_computing_prac1/install-wordpress-vm.sh 301 10.24.38.31 wordpress-client1
