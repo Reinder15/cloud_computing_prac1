@@ -1,0 +1,14 @@
+---
+- name: Setup SSH access on Linux guests
+  hosts: '{{ ssh_setup_target_group | default("vm_wordpress:lxc_wordpress") }}'
+  become: true
+  gather_facts: false
+
+  vars:
+    ssh_setup_public_keys_file: /mnt/pve/cephfs/.ssh/authorized_keys
+    ssh_setup_manage_user: true
+    ssh_setup_sudo_group: sudo
+
+  tasks:
+    - name: Apply reusable SSH access setup tasks
+      ansible.builtin.import_tasks: tasks/setup_ssh_access.yml
