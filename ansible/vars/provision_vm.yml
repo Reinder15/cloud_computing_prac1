@@ -25,7 +25,7 @@ vm_generate_keys: true
 # Deterministic VM generation rules
 # VMIDs, names, users, and IPs are generated from these values.
 vm_plan_count: 3
-vm_plan_vmid_start: 1000
+vm_plan_vmid_start: 1001
 vm_plan_ip_last_octet_start: 100
 vm_ip_prefix: 10.24.38
 vm_name_prefix: wp-vm-
