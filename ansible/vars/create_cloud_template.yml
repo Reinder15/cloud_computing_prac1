@@ -9,7 +9,7 @@ template_disk_size_gb: 30
 template_disk_size: '{{ template_disk_size_gb }}G'
 template_disk_size_bytes: '{{ template_disk_size_gb | int * 1024 * 1024 * 1024 }}'
 
-template_storage: local-lvm
+template_storage: ceph-pool
 template_cloudinit_drive_ref: '{{ template_storage }}:cloudinit'
 template_efidisk_ref: '{{ template_storage }}:0,pre-enrolled-keys=0'
 
@@ -34,9 +34,9 @@ template_ipconfig0: ip=dhcp
 template_sshkeys_path: /mnt/pve/cephfs/.ssh/authorized_keys
 template_force_sshkeys_update: false
 
-template_vendor_snippet_storage: local
+template_vendor_snippet_storage: ceph-pool
 template_vendor_snippet_name: vendor.yaml
-template_vendor_snippet_path: /var/lib/vz/snippets/vendor.yaml
+template_vendor_snippet_path: /mnt/pve/cephfs/vendor.yaml
 template_vendor_snippet_ref: '{{ template_vendor_snippet_storage }}:snippets/{{ template_vendor_snippet_name }}'
 
 template_vendor_snippet_content: |
