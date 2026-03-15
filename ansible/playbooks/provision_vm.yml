@@ -262,6 +262,7 @@
     - name: Refresh cloud-init configuration
       ansible.builtin.command: 'qm cloudinit update {{ item.item.vmid }}'
       loop: '{{ vm_clone_results.results | default([]) }}'
+      delegate_to: '{{ vm_template_source_node | default(vm_api_delegate_host) }}'
       changed_when: false
       when: vm_force_reconfigure | bool or item.changed
 
