@@ -328,3 +328,29 @@
         ansible_ssh_private_key_file: '{{ item.item.key_base }}'
       loop: '{{ vm_clone_results.results | default([]) }}'
       when: (vm_clone_results.results | default([])) | length > 0
+
+- name: Update and upgrade packages on provisioned VMs
+  hosts: vm_provisioned
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Wait for SSH connection to provisioned VM
+      ansible.builtin.wait_for_connection:
+        timeout: '{{ vm_post_provision_wait_timeout | default(300) | int }}'
+
+    - name: Wait for cloud-init to finish before apt operations
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Update apt package index
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 0
+        lock_timeout: 600
+
+    - name: Upgrade installed packages
+      ansible.builtin.apt:
+        upgrade: yes
+        lock_timeout: 600
