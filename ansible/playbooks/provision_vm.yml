@@ -259,10 +259,29 @@
       delegate_to: '{{ vm_api_delegate_host }}'
       when: vm_force_reconfigure | bool or item.changed
 
+    - name: Gather cloned VM config before cloud-init refresh
+      ansible.builtin.command: 'qm config {{ item.item.vmid }}'
+      register: vm_config_for_cloudinit
+      changed_when: false
+      loop: '{{ vm_clone_results.results | default([]) }}'
+      delegate_to: '{{ item.item.node }}'
+      when: vm_force_reconfigure | bool or item.changed
+
+    - name: Remove local cicustom reference inherited from template
+      ansible.builtin.command: 'qm set {{ item.item.item.vmid }} --delete cicustom'
+      register: vm_cicustom_cleanup
+      changed_when: >-
+        ('update VM' in (vm_cicustom_cleanup.stdout | default(''))) or
+        ('update vm' in (vm_cicustom_cleanup.stdout | default('') | lower))
+      loop: '{{ vm_config_for_cloudinit.results | default([]) }}'
+      delegate_to: '{{ item.item.item.node }}'
+      when:
+        - (item.stdout | default('')) is search('(?m)^cicustom:\\s*local:')
+
     - name: Refresh cloud-init configuration
       ansible.builtin.command: 'qm cloudinit update {{ item.item.vmid }}'
       loop: '{{ vm_clone_results.results | default([]) }}'
-      delegate_to: '{{ vm_template_source_node | default(vm_api_delegate_host) }}'
+      delegate_to: '{{ item.item.node }}'
       changed_when: false
       when: vm_force_reconfigure | bool or item.changed
 

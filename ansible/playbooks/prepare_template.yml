@@ -1,0 +1,160 @@
+---
+- name: Prepare VM template for cluster-wide provisioning
+  hosts: prox_nodes
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../vars/provision_vm.yml
+    - ../vars/prepare_template.yml
+  vars:
+    vm_api_delegate_host: '{{ groups["prox_nodes"] | first }}'
+    vm_api_delegate_addr: '{{ hostvars[vm_api_delegate_host].ansible_host | default(vm_api_delegate_host) }}'
+  module_defaults:
+    group/community.proxmox.proxmox:
+      api_user: '{{ lookup("ansible.builtin.env", "PROXMOX_USER") | default("root@pam", true) }}'
+      api_password: '{{ lookup("ansible.builtin.env", "PROXMOX_PASSWORD") | default(omit, true) }}'
+      api_token_id: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_ID") | default(omit, true) }}'
+      api_token_secret: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_SECRET") | default(omit, true) }}'
+      validate_certs: '{{ (lookup("ansible.builtin.env", "PROXMOX_VALIDATE_CERTS") | default("false", true)) | bool }}'
+
+  pre_tasks:
+    - name: Require API credentials for community.proxmox
+      ansible.builtin.assert:
+        that:
+          - (lookup('ansible.builtin.env', 'PROXMOX_PASSWORD') | length > 0) or ((lookup('ansible.builtin.env', 'PROXMOX_TOKEN_ID') | length > 0) and (lookup('ansible.builtin.env', 'PROXMOX_TOKEN_SECRET') | length > 0))
+        fail_msg: Set PROXMOX_PASSWORD or PROXMOX_TOKEN_ID + PROXMOX_TOKEN_SECRET before running API-driven provisioning.
+      run_once: true
+      delegate_to: '{{ vm_api_delegate_host }}'
+
+    - name: Validate target template exists
+      community.proxmox.proxmox_vm_info:
+        api_host: '{{ vm_api_delegate_addr }}'
+        type: qemu
+        vmid: '{{ vm_template_id | int }}'
+      register: template_vm_info
+      run_once: true
+      delegate_to: '{{ vm_api_delegate_host }}'
+
+    - name: Fail when template VM is missing
+      ansible.builtin.assert:
+        that:
+          - (template_vm_info.proxmox_vms | default([]) | length) > 0
+        fail_msg: Template VMID {{ vm_template_id }} not found. Create it first or adjust vm_template_id.
+      run_once: true
+
+    - name: Capture template source node and name
+      ansible.builtin.set_fact:
+        vm_template_source_node: '{{ (template_vm_info.proxmox_vms | first).node | default(vm_api_delegate_host, true) }}'
+        vm_template_source_name: '{{ (template_vm_info.proxmox_vms | first).name | default("template-" ~ (vm_template_id | string), true) }}'
+      run_once: true
+
+  tasks:
+    - name: Show template metadata
+      ansible.builtin.debug:
+        msg:
+          - 'Template VMID: {{ vm_template_id }}'
+          - 'Template name: {{ vm_template_source_name }}'
+          - 'Template source node: {{ vm_template_source_node }}'
+      run_once: true
+
+    - name: Ensure shared snippets directory exists
+      ansible.builtin.file:
+        path: '{{ template_vendor_snippet_path | dirname }}'
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      run_once: true
+      delegate_to: '{{ vm_template_source_node }}'
+
+    - name: Ensure shared vendor snippet exists
+      ansible.builtin.copy:
+        dest: '{{ template_vendor_snippet_path }}'
+        content: '{{ template_vendor_snippet_content }}'
+        owner: root
+        group: root
+        mode: '0644'
+      run_once: true
+      delegate_to: '{{ vm_template_source_node }}'
+
+    - name: Read current template config
+      ansible.builtin.command: 'qm config {{ vm_template_id }}'
+      register: template_qm_config
+      changed_when: false
+      run_once: true
+      delegate_to: '{{ vm_template_source_node }}'
+
+    - name: Move non-shared template disks to shared storage
+      ansible.builtin.command: >-
+        qm move_disk {{ vm_template_id }}
+        {{ item | regex_replace(':.*$', '') }}
+        {{ template_shared_disk_storage }} --delete 1
+      loop: >-
+        {{
+          template_qm_config.stdout_lines
+          | select('match', '^(virtio|scsi|sata|efidisk|tpmstate)[0-9]*:')
+          | reject('search', '^.+:\\s*' ~ template_shared_disk_storage ~ ':')
+          | list
+        }}
+      run_once: true
+      delegate_to: '{{ vm_template_source_node }}'
+
+    - name: Ensure cloud-init drive uses shared storage
+      ansible.builtin.command: 'qm set {{ vm_template_id }} --ide2 {{ template_shared_disk_storage }}:cloudinit'
+      run_once: true
+      delegate_to: '{{ vm_template_source_node }}'
+      when: >-
+        (template_qm_config.stdout | default('')) is not search(
+          '(?m)^ide2:\\s*' ~ template_shared_disk_storage ~ ':cloudinit'
+        )
+
+    - name: Point template cicustom to shared snippet storage
+      community.proxmox.proxmox_kvm:
+        api_host: '{{ vm_api_delegate_addr }}'
+        vmid: '{{ vm_template_id | int }}'
+        node: '{{ vm_template_source_node }}'
+        cicustom: 'vendor={{ template_vendor_snippet_ref }}'
+        update: true
+        state: present
+      run_once: true
+      delegate_to: '{{ vm_api_delegate_host }}'
+
+    - name: Ensure VM is marked as template
+      ansible.builtin.command: 'qm template {{ vm_template_id }}'
+      register: template_mark_result
+      changed_when: template_mark_result.rc == 0
+      failed_when: >-
+        (template_mark_result.rc != 0) and
+        ('already' not in (template_mark_result.stderr | default('') | lower))
+      run_once: true
+      delegate_to: '{{ vm_template_source_node }}'
+
+    - name: Refresh cloud-init metadata for template
+      ansible.builtin.command: 'qm cloudinit update {{ vm_template_id }}'
+      changed_when: false
+      run_once: true
+      delegate_to: '{{ vm_template_source_node }}'
+
+    - name: Read final template config
+      ansible.builtin.command: 'qm config {{ vm_template_id }}'
+      register: template_qm_config_final
+      changed_when: false
+      run_once: true
+      delegate_to: '{{ vm_template_source_node }}'
+
+    - name: Verify template is portable across nodes
+      ansible.builtin.assert:
+        that:
+          - (template_qm_config_final.stdout | default('')) is search('(?m)^template:\\s*1\\s*$')
+          - (template_qm_config_final.stdout | default('')) is search('(?m)^ide2:\\s*' ~ template_shared_disk_storage ~ ':cloudinit')
+          - >-
+            (
+              template_qm_config_final.stdout_lines
+              | select('match', '^(virtio|scsi|sata|efidisk|tpmstate)[0-9]*:')
+              | reject('search', '^.+:\\s*' ~ template_shared_disk_storage ~ ':')
+              | list
+              | length
+            ) == 0
+          - (template_qm_config_final.stdout | default('')) is search('(?m)^cicustom:\\s*vendor=' ~ template_vendor_snippet_ref)
+        fail_msg: Template portability checks failed. Ensure shared storage and shared snippet configuration are correct.
+      run_once: true
