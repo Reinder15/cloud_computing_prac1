@@ -1,0 +1,143 @@
+---
+- name: Install and configure WordPress
+  hosts: 'vm_wordpress:vm_provisioned'
+  become: true
+  gather_facts: false
+
+  vars:
+    wordpress_db_name: wordpress_db
+    wordpress_db_user: wpuser
+    wordpress_db_password: wpuser
+    wordpress_download_url: https://wordpress.org/latest.tar.gz
+    wordpress_archive_path: /tmp/latest.tar.gz
+    wordpress_extract_path: /tmp
+    wordpress_source_path: /tmp/wordpress
+    wordpress_web_root: /var/www/html
+
+  tasks:
+    - name: Ensure apt dependencies for WordPress are installed
+      ansible.builtin.apt:
+        name:
+          - apache2
+          - mysql-server
+          - php
+          - php-mysql
+          - curl
+          - wget
+        state: present
+        update_cache: true
+        lock_timeout: 600
+
+    - name: Ensure Apache is enabled and running
+      ansible.builtin.systemd:
+        name: apache2
+        enabled: true
+        state: started
+
+    - name: Ensure MySQL is enabled and running
+      ansible.builtin.systemd:
+        name: mysql
+        enabled: true
+        state: started
+
+    - name: Ensure WordPress database exists
+      ansible.builtin.command:
+        argv:
+          - mysql
+          - --execute=CREATE DATABASE IF NOT EXISTS {{ wordpress_db_name }};
+      changed_when: false
+
+    - name: Ensure WordPress database user exists
+      ansible.builtin.command:
+        argv:
+          - mysql
+          - --execute=CREATE USER IF NOT EXISTS '{{ wordpress_db_user }}'@'localhost' IDENTIFIED BY '{{ wordpress_db_password }}';
+      no_log: true
+      changed_when: false
+
+    - name: Ensure WordPress database user password is set
+      ansible.builtin.command:
+        argv:
+          - mysql
+          - --execute=ALTER USER '{{ wordpress_db_user }}'@'localhost' IDENTIFIED BY '{{ wordpress_db_password }}';
+      no_log: true
+      changed_when: false
+
+    - name: Ensure WordPress database privileges are granted
+      ansible.builtin.command:
+        argv:
+          - mysql
+          - --execute=GRANT ALL PRIVILEGES ON {{ wordpress_db_name }}.* TO '{{ wordpress_db_user }}'@'localhost'; FLUSH PRIVILEGES;
+      changed_when: false
+
+    - name: Download latest WordPress archive
+      ansible.builtin.get_url:
+        url: '{{ wordpress_download_url }}'
+        dest: '{{ wordpress_archive_path }}'
+        mode: '0644'
+
+    - name: Extract WordPress archive
+      ansible.builtin.unarchive:
+        src: '{{ wordpress_archive_path }}'
+        dest: '{{ wordpress_extract_path }}'
+        remote_src: true
+
+    - name: Remove default Apache index page
+      ansible.builtin.file:
+        path: '{{ wordpress_web_root }}/index.html'
+        state: absent
+
+    - name: Copy WordPress files into web root when missing
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - '{{ wordpress_source_path }}/.'
+          - '{{ wordpress_web_root }}/'
+      args:
+        creates: '{{ wordpress_web_root }}/wp-config-sample.php'
+
+    - name: Ensure web root ownership is www-data
+      ansible.builtin.file:
+        path: '{{ wordpress_web_root }}'
+        owner: www-data
+        group: www-data
+        recurse: true
+
+    - name: Ensure web root permissions are 0755
+      ansible.builtin.file:
+        path: '{{ wordpress_web_root }}'
+        mode: '0755'
+        recurse: true
+
+    - name: Ensure wp-config.php exists
+      ansible.builtin.copy:
+        src: '{{ wordpress_web_root }}/wp-config-sample.php'
+        dest: '{{ wordpress_web_root }}/wp-config.php'
+        remote_src: true
+        force: false
+        mode: '0644'
+
+    - name: Configure WordPress DB_NAME in wp-config.php
+      ansible.builtin.lineinfile:
+        path: '{{ wordpress_web_root }}/wp-config.php'
+        regexp: "^define\\(\\s*'DB_NAME'\\s*,\\s*'.*'\\s*\\);"
+        line: "define( 'DB_NAME', '{{ wordpress_db_name }}' );"
+
+    - name: Configure WordPress DB_USER in wp-config.php
+      ansible.builtin.lineinfile:
+        path: '{{ wordpress_web_root }}/wp-config.php'
+        regexp: "^define\\(\\s*'DB_USER'\\s*,\\s*'.*'\\s*\\);"
+        line: "define( 'DB_USER', '{{ wordpress_db_user }}' );"
+
+    - name: Configure WordPress DB_PASSWORD in wp-config.php
+      ansible.builtin.lineinfile:
+        path: '{{ wordpress_web_root }}/wp-config.php'
+        regexp: "^define\\(\\s*'DB_PASSWORD'\\s*,\\s*'.*'\\s*\\);"
+        line: "define( 'DB_PASSWORD', '{{ wordpress_db_password }}' );"
+      no_log: true
+
+    - name: Restart Apache
+      ansible.builtin.systemd:
+        name: apache2
+        state: restarted
