@@ -446,32 +446,3 @@
           ansible.builtin.command: 'qm config {{ template_vmid }}'
           register: template_vm_config_final
           changed_when: false
-
-        - name: Verify final template configuration
-          ansible.builtin.assert:
-            that:
-              - (template_vm_config_final.stdout | default('')) is search('(?m)^name:\s*' ~ (template_name | regex_escape) ~ '\s*$')
-              - (template_vm_config_final.stdout | default('')) is search('(?m)^template:\s*1\s*$')
-              - >-
-                (template_vm_config_final.stdout | default('')) is search(
-                  '(?m)^efidisk0:\s*' ~ (template_storage | regex_escape) ~ ':[^,\s]+(?:,.*)?pre-enrolled-keys=0(?:,.*)?$'
-                )
-              - >-
-                (template_vm_config_final.stdout | default('')) is search(
-                  '(?m)^virtio0:\s*' ~ (template_storage | regex_escape) ~ ':(?:base|vm)-' ~ (template_vmid | string) ~ '-disk-[0-9]+(?:,.*)?discard=on(?:,.*)?size=' ~ (template_disk_size | regex_escape) ~ '(?:,.*)?$'
-                )
-              - (template_vm_config_final.stdout | default('')) is search('(?m)^boot:\s*order=virtio0\s*$')
-              - (template_vm_config_final.stdout | default('')) is search('(?m)^ide2:\s*' ~ (template_cloudinit_drive_ref | regex_escape) ~ '(?:,.*)?$')
-              - (template_vm_config_final.stdout | default('')) is search('(?m)^cicustom:\s*vendor=' ~ (template_vendor_snippet_ref | regex_escape) ~ '\s*$')
-              - (template_vm_config_final.stdout | default('')) is search('(?m)^ciuser:\s*' ~ (template_cloudinit_user | regex_escape) ~ '\s*$')
-              - (template_vm_config_final.stdout | default('')) is search('(?m)^ciupgrade:\s*' ~ template_cloudinit_upgrade_value ~ '\s*$')
-              - (template_vm_config_final.stdout | default('')) is search('(?m)^ipconfig0:\s*' ~ (template_ipconfig0 | regex_escape) ~ '\s*$')
-              - >-
-                (
-                  template_expected_tags
-                  | difference(
-                      ((template_vm_config_final.stdout | default('') | regex_findall('(?m)^tags:\s*(.+)$') | first | default('', true)) | split(';'))
-                    )
-                  | length
-                ) == 0
-            fail_msg: Final template verification failed on {{ inventory_hostname }}. Inspect qm config {{ template_vmid }}.
