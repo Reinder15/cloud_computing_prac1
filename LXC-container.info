@@ -8,12 +8,15 @@ pveam list local
 # Maak LXC container
 pct create 100 local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst \
   --hostname wordpress-training \
-  --memory 2048 \
+  --memory 1024 \
   --net0 name=eth0,bridge=vmbr0,ip=10.24.38.10/24,gw=10.24.38.1 \
   --nameserver 8.8.8.8 \
   --onboot 1 \
   --start 1 \
   --storage ceph-pool
+ 
+apt update
+apt upgrade -y
 
 # Start container en installeer WordPress MANUEEL:
 pct start 100

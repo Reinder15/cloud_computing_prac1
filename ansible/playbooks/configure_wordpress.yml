@@ -1,6 +1,6 @@
 ---
 - name: Install and configure WordPress
-  hosts: vm_wordpress
+  hosts: 'vm_wordpress:lxc_wordpress'
   become: true
   gather_facts: false
 
