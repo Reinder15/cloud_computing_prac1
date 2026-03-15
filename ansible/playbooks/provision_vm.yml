@@ -403,3 +403,50 @@
       ansible.builtin.apt:
         upgrade: yes
         lock_timeout: 600
+
+    - name: Ensure sshd drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        mode: '0755'
+
+    - name: Disable direct root SSH logins
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/99-disable-root-ssh.conf
+        content: |
+          # Disable direct root SSH logins.
+          PermitRootLogin no
+        mode: '0644'
+
+    - name: Validate SSH daemon configuration
+      ansible.builtin.command: sshd -t
+      changed_when: false
+
+    - name: Reload SSH service
+      ansible.builtin.systemd:
+        name: ssh
+        state: reloaded
+
+    - name: Ensure UFW is installed
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+        lock_timeout: 600
+
+    - name: Reset UFW rules
+      ansible.builtin.command: ufw --force reset
+
+    - name: Set UFW default policy to deny incoming
+      ansible.builtin.command: ufw default deny incoming
+
+    - name: Set UFW default policy to allow outgoing
+      ansible.builtin.command: ufw default allow outgoing
+
+    - name: Allow SSH in UFW
+      ansible.builtin.command: ufw allow 22/tcp
+
+    - name: Allow HTTP in UFW
+      ansible.builtin.command: ufw allow 80/tcp
+
+    - name: Enable UFW
+      ansible.builtin.command: ufw --force enable
