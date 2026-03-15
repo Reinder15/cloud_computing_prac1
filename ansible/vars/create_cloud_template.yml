@@ -34,9 +34,9 @@ template_ipconfig0: ip=dhcp
 template_sshkeys_path: /mnt/pve/cephfs/.ssh/authorized_keys
 template_force_sshkeys_update: false
 
-template_vendor_snippet_storage: ceph-pool
+template_vendor_snippet_storage: cephfs
 template_vendor_snippet_name: vendor.yaml
-template_vendor_snippet_path: /mnt/pve/cephfs/vendor.yaml
+template_vendor_snippet_path: /mnt/pve/cephfs/snippets/vendor.yaml
 template_vendor_snippet_ref: '{{ template_vendor_snippet_storage }}:snippets/{{ template_vendor_snippet_name }}'
 
 template_vendor_snippet_content: |
