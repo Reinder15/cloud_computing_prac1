@@ -331,9 +331,10 @@
 
 - name: Persist provisioned VMs in vm_wordpress inventory group
   hosts: localhost
+  become: true
   gather_facts: false
   vars:
-    vm_inventory_path: '{{ playbook_dir }}/../hosts'
+    vm_inventory_path: '{{ (ansible_inventory_sources | default([]) | first) | default("/etc/ansible/hosts", true) }}'
 
   tasks:
     - name: Initialize persistent VM inventory list

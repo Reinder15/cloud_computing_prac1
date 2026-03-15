@@ -1,6 +1,6 @@
 ---
 - name: Install and configure WordPress
-  hosts: 'vm_wordpress:vm_provisioned'
+  hosts: vm_wordpress
   become: true
   gather_facts: false
 
