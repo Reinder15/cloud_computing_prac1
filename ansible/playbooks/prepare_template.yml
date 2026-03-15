@@ -103,11 +103,18 @@
 
     - name: Ensure cloud-init drive uses shared storage
       ansible.builtin.command: 'qm set {{ vm_template_id }} --ide2 {{ template_shared_disk_storage }}:cloudinit'
+      register: template_cloudinit_drive_set
+      changed_when: >-
+        (template_cloudinit_drive_set.rc == 0) and
+        ('update VM' in (template_cloudinit_drive_set.stdout | default('')))
+      failed_when: >-
+        (template_cloudinit_drive_set.rc != 0) and
+        ('already exists' not in (template_cloudinit_drive_set.stderr | default('') | lower))
       run_once: true
       delegate_to: '{{ vm_template_source_node }}'
       when: >-
         (template_qm_config.stdout | default('')) is not search(
-          '(?m)^ide2:\\s*' ~ template_shared_disk_storage ~ ':cloudinit'
+          '(?m)^ide2:\\s*' ~ template_shared_disk_storage ~ ':'
         )
 
     - name: Point template cicustom to shared snippet storage
@@ -148,7 +155,7 @@
       ansible.builtin.assert:
         that:
           - (template_qm_config_final.stdout | default('')) is search('(?m)^template:\\s*1\\s*$')
-          - (template_qm_config_final.stdout | default('')) is search('(?m)^ide2:\\s*' ~ template_shared_disk_storage ~ ':cloudinit')
+          - (template_qm_config_final.stdout | default('')) is search('(?m)^ide2:\\s*' ~ template_shared_disk_storage ~ ':')
           - >-
             (
               template_qm_config_final.stdout_lines
