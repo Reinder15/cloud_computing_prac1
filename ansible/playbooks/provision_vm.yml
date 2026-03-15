@@ -333,8 +333,57 @@
   hosts: vm_provisioned
   become: true
   gather_facts: false
+  vars_files:
+    - ../vars/provision_vm.yml
 
   tasks:
+    - name: Wait until SSH port is reachable from control node
+      ansible.builtin.wait_for:
+        host: '{{ ansible_host }}'
+        port: 22
+        timeout: '{{ vm_post_provision_wait_timeout | default(300) | int }}'
+      delegate_to: localhost
+      become: false
+
+    - name: Remove stale SSH host key for provisioned VM IP
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -f
+          - '{{ vm_known_hosts_file | default(vm_ssh_dir ~ "/known_hosts") }}'
+          - -R
+          - '{{ ansible_host }}'
+      register: vm_known_hosts_cleanup
+      changed_when: >-
+        ('not found' not in (vm_known_hosts_cleanup.stdout | default('') | lower)) and
+        ('no such file' not in (vm_known_hosts_cleanup.stderr | default('') | lower))
+      failed_when: false
+      delegate_to: localhost
+      become: false
+
+    - name: Read current SSH host key for provisioned VM
+      ansible.builtin.command:
+        argv:
+          - ssh-keyscan
+          - -H
+          - -T
+          - '5'
+          - '{{ ansible_host }}'
+      register: vm_keyscan_result
+      changed_when: false
+      failed_when: (vm_keyscan_result.stdout | default('') | trim | length) == 0
+      delegate_to: localhost
+      become: false
+
+    - name: Store current SSH host key for provisioned VM
+      ansible.builtin.known_hosts:
+        path: '{{ vm_known_hosts_file | default(vm_ssh_dir ~ "/known_hosts") }}'
+        name: '{{ ansible_host }}'
+        key: '{{ vm_keyscan_result.stdout }}'
+        state: present
+      delegate_to: localhost
+      become: false
+
     - name: Wait for SSH connection to provisioned VM
       ansible.builtin.wait_for_connection:
         timeout: '{{ vm_post_provision_wait_timeout | default(300) | int }}'
