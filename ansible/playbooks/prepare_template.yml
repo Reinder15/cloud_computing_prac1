@@ -84,7 +84,7 @@
       run_once: true
       delegate_to: '{{ vm_template_source_node }}'
 
-    - name: Move non-shared template disks to shared storage
+    - name: Move template disks to shared storage when needed
       ansible.builtin.command: >-
         qm move_disk {{ vm_template_id }}
         {{ item | regex_replace(':.*$', '') }}
@@ -93,9 +93,11 @@
         {{
           template_qm_config.stdout_lines
           | select('match', '^(virtio|scsi|sata|efidisk|tpmstate)[0-9]*:')
-          | reject('search', '^.+:\\s*' ~ template_shared_disk_storage ~ ':')
           | list
         }}
+      loop_control:
+        label: "{{ item | regex_replace(':.*$', '') }}"
+      when: ((item.split(':', 2))[1] | trim) != template_shared_disk_storage
       run_once: true
       delegate_to: '{{ vm_template_source_node }}'
 
@@ -151,7 +153,8 @@
             (
               template_qm_config_final.stdout_lines
               | select('match', '^(virtio|scsi|sata|efidisk|tpmstate)[0-9]*:')
-              | reject('search', '^.+:\\s*' ~ template_shared_disk_storage ~ ':')
+              | map('regex_replace', '^[^:]+:\\s*([^:,]+).*$' , '\\1')
+              | reject('equalto', template_shared_disk_storage)
               | list
               | length
             ) == 0
