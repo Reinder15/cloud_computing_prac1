@@ -61,6 +61,12 @@
         fail_msg: Source VMID {{ vm_template_id }} was not found in the Proxmox cluster.
       run_once: true
 
+    - name: Capture template source node and name from Proxmox API
+      ansible.builtin.set_fact:
+        vm_template_source_node: '{{ (template_vm_info.proxmox_vms | first).node | default(vm_api_delegate_host, true) }}'
+        vm_template_source_name: '{{ (template_vm_info.proxmox_vms | first).name | default("template-" ~ (vm_template_id | string), true) }}'
+      run_once: true
+
   tasks:
     - name: Build generated VM plan for this host
       ansible.builtin.set_fact:
@@ -192,11 +198,12 @@
     - name: Clone VM when absent
       community.proxmox.proxmox_kvm:
         api_host: '{{ vm_api_delegate_addr }}'
-        clone: 'template-{{ vm_template_id }}'
+        clone: '{{ vm_template_source_name }}'
         vmid: '{{ vm_template_id | int }}'
         newid: '{{ item.vmid | int }}'
         name: '{{ item.name }}'
-        node: '{{ item.node }}'
+        node: '{{ vm_template_source_node }}'
+        target: '{{ item.node }}'
         storage: '{{ vm_storage }}'
         full: true
         timeout: '{{ vm_clone_timeout | default(600) | int }}'
