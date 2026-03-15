@@ -1,5 +1,5 @@
 ---
-- name: Create Ubuntu 24.04 cloud-init template on every Proxmox node
+- name: Create Ubuntu 24.04 cloud-init template on the selected Proxmox node
   hosts: prox_nodes
   become: true
   gather_facts: false
@@ -7,9 +7,17 @@
     - ../vars/create_cloud_template.yml
 
   pre_tasks:
+    - name: Validate template source node exists in prox_nodes inventory group
+      ansible.builtin.assert:
+        that:
+          - template_source_node in groups['prox_nodes']
+        fail_msg: Template source node {{ template_source_node }} is not present in group prox_nodes.
+      run_once: true
+
     - name: Verify Proxmox CLI is available
       ansible.builtin.command: pveversion
       changed_when: false
+      when: inventory_hostname == template_source_node
 
     - name: Validate template creation settings
       ansible.builtin.assert:
@@ -26,327 +34,444 @@
           - template_sshkeys_path | length > 0
           - template_vendor_snippet_path | length > 0
           - template_vendor_snippet_ref | length > 0
+          - template_source_node | length > 0
         fail_msg: Invalid template creation settings. Check ansible/vars/create_cloud_template.yml.
+      when: inventory_hostname == template_source_node
 
     - name: Ensure cloud-init SSH keys file exists
       ansible.builtin.stat:
         path: '{{ template_sshkeys_path }}'
       register: template_sshkeys_stat
+      when: inventory_hostname == template_source_node
 
     - name: Fail when cloud-init SSH keys file is missing
       ansible.builtin.assert:
         that:
           - template_sshkeys_stat.stat.exists
         fail_msg: SSH key file {{ template_sshkeys_path }} was not found on {{ inventory_hostname }}.
+      when: inventory_hostname == template_source_node
 
   tasks:
-    - name: Ensure cloud image directory exists
-      ansible.builtin.file:
-        path: '{{ template_image_path | dirname }}'
-        state: directory
-        owner: root
-        group: root
-        mode: '0755'
+    - name: Manage template lifecycle on source node
+      when: inventory_hostname == template_source_node
+      block:
+        - name: Build expected template tag list
+          ansible.builtin.set_fact:
+            template_expected_tags: '{{ template_tags.split(",") | map("trim") | reject("equalto", "") | list }}'
 
-    - name: Download Ubuntu cloud image
-      ansible.builtin.get_url:
-        url: '{{ template_image_url }}'
-        dest: '{{ template_image_path }}'
-        mode: '0644'
-        force: false
+        - name: Ensure cloud image directory exists
+          ansible.builtin.file:
+            path: '{{ template_image_path | dirname }}'
+            state: directory
+            owner: root
+            group: root
+            mode: '0755'
 
-    - name: Inspect downloaded cloud image size
-      ansible.builtin.command:
-        argv:
-          - qemu-img
-          - info
-          - --output=json
-          - '{{ template_image_path }}'
-      register: template_image_info
-      changed_when: false
+        - name: Download Ubuntu cloud image
+          ansible.builtin.get_url:
+            url: '{{ template_image_url }}'
+            dest: '{{ template_image_path }}'
+            mode: '0644'
+            force: false
 
-    - name: Fail when existing image is larger than target disk size
-      ansible.builtin.assert:
-        that:
-          - ((template_image_info.stdout | from_json)['virtual-size'] | int) <= (template_disk_size_bytes | int)
-        fail_msg: Existing image {{ template_image_path }} is larger than {{ template_disk_size }}. Increase template_disk_size_gb or remove the image before rerunning.
+        - name: Inspect downloaded cloud image size
+          ansible.builtin.command:
+            argv:
+              - qemu-img
+              - info
+              - --output=json
+              - '{{ template_image_path }}'
+          register: template_image_info
+          changed_when: false
 
-    - name: Resize cloud image to target disk size
-      ansible.builtin.command:
-        argv:
-          - qemu-img
-          - resize
-          - '{{ template_image_path }}'
-          - '{{ template_disk_size }}'
-      when: ((template_image_info.stdout | from_json)['virtual-size'] | int) < (template_disk_size_bytes | int)
+        - name: Fail when existing image is larger than target disk size
+          ansible.builtin.assert:
+            that:
+              - ((template_image_info.stdout | from_json)['virtual-size'] | int) <= (template_disk_size_bytes | int)
+            fail_msg: Existing image {{ template_image_path }} is larger than {{ template_disk_size }}. Increase template_disk_size_gb or remove the image before rerunning.
 
-    - name: Read current template VM config
-      ansible.builtin.command: 'qm config {{ template_vmid }}'
-      register: template_vm_config_initial
-      changed_when: false
-      failed_when: false
+        - name: Resize cloud image to target disk size
+          ansible.builtin.command:
+            argv:
+              - qemu-img
+              - resize
+              - '{{ template_image_path }}'
+              - '{{ template_disk_size }}'
+          when: ((template_image_info.stdout | from_json)['virtual-size'] | int) < (template_disk_size_bytes | int)
 
-    - name: Fail if VMID already belongs to a different VM
-      ansible.builtin.assert:
-        that:
-          - template_vm_config_initial.rc != 0 or ((template_vm_config_initial.stdout | default('')) is search('(?m)^name:\s*' ~ (template_name | regex_escape) ~ '\s*$'))
-        fail_msg: VMID {{ template_vmid }} already exists on {{ inventory_hostname }} with a different name. Change template_vmid or remove the conflicting VM first.
+        - name: Read current template VM config
+          ansible.builtin.command: 'qm config {{ template_vmid }}'
+          register: template_vm_config_initial
+          changed_when: false
+          failed_when: false
 
-    - name: Create base VM when template is missing
-      ansible.builtin.command:
-        argv:
-          - qm
-          - create
-          - '{{ template_vmid | string }}'
-          - --name
-          - '{{ template_name }}'
-          - --ostype
-          - '{{ template_ostype }}'
-          - --memory
-          - '{{ template_memory_mb | string }}'
-          - --agent
-          - '1'
-          - --bios
-          - '{{ template_bios }}'
-          - --machine
-          - '{{ template_machine }}'
-          - --efidisk0
-          - '{{ template_efidisk_ref }}'
-          - --cpu
-          - '{{ template_cpu_type }}'
-          - --sockets
-          - '{{ template_sockets | string }}'
-          - --cores
-          - '{{ template_cores | string }}'
-          - --vga
-          - '{{ template_vga }}'
-          - --serial0
-          - '{{ template_serial0 }}'
-          - --net0
-          - 'virtio,bridge={{ template_bridge }}'
-      when: template_vm_config_initial.rc != 0
+        - name: Fail if VMID already belongs to a different VM
+          ansible.builtin.assert:
+            that:
+              - template_vm_config_initial.rc != 0 or ((template_vm_config_initial.stdout | default('')) is search('(?m)^name:\s*' ~ (template_name | regex_escape) ~ '\s*$'))
+            fail_msg: VMID {{ template_vmid }} already exists on {{ inventory_hostname }} with a different name. Change template_vmid or remove the conflicting VM first.
 
-    - name: Read template config after create
-      ansible.builtin.command: 'qm config {{ template_vmid }}'
-      register: template_vm_config_after_create
-      changed_when: false
+        - name: Create base VM when template is missing
+          ansible.builtin.command:
+            argv:
+              - qm
+              - create
+              - '{{ template_vmid | string }}'
+              - --name
+              - '{{ template_name }}'
+              - --ostype
+              - '{{ template_ostype }}'
+              - --memory
+              - '{{ template_memory_mb | string }}'
+              - --agent
+              - '1'
+              - --bios
+              - '{{ template_bios }}'
+              - --machine
+              - '{{ template_machine }}'
+              - --efidisk0
+              - '{{ template_efidisk_ref }}'
+              - --cpu
+              - '{{ template_cpu_type }}'
+              - --sockets
+              - '{{ template_sockets | string }}'
+              - --cores
+              - '{{ template_cores | string }}'
+              - --vga
+              - '{{ template_vga }}'
+              - --serial0
+              - '{{ template_serial0 }}'
+              - --net0
+              - 'virtio,bridge={{ template_bridge }}'
+          when: template_vm_config_initial.rc != 0
 
-    - name: Read current VM status
-      ansible.builtin.command: 'qm status {{ template_vmid }}'
-      register: template_vm_status
-      changed_when: false
+        - name: Read template config after create
+          ansible.builtin.command: 'qm config {{ template_vmid }}'
+          register: template_vm_config_after_create
+          changed_when: false
 
-    - name: Stop template VM when it is running
-      ansible.builtin.command: 'qm stop {{ template_vmid }}'
-      when: (template_vm_status.stdout | default('')) is search('status:\s*running')
+        - name: Read current VM status
+          ansible.builtin.command: 'qm status {{ template_vmid }}'
+          register: template_vm_status
+          changed_when: false
 
-    - name: Ensure vendor snippet directory exists
-      ansible.builtin.file:
-        path: '{{ template_vendor_snippet_path | dirname }}'
-        state: directory
-        owner: root
-        group: root
-        mode: '0755'
+        - name: Stop template VM when it is running
+          ansible.builtin.command: 'qm stop {{ template_vmid }}'
+          when: (template_vm_status.stdout | default('')) is search('status:\s*running')
 
-    - name: Ensure vendor snippet content exists
-      ansible.builtin.copy:
-        dest: '{{ template_vendor_snippet_path }}'
-        content: '{{ template_vendor_snippet_content }}'
-        owner: root
-        group: root
-        mode: '0644'
+        - name: Ensure vendor snippet directory exists
+          ansible.builtin.file:
+            path: '{{ template_vendor_snippet_path | dirname }}'
+            state: directory
+            owner: root
+            group: root
+            mode: '0755'
 
-    - name: Ensure EFI disk exists
-      ansible.builtin.command:
-        argv:
-          - qm
-          - set
-          - '{{ template_vmid | string }}'
-          - --efidisk0
-          - '{{ template_efidisk_ref }}'
-      when: >-
-        (template_vm_config_after_create.stdout | default('')) is not search(
-          '(?m)^efidisk0:\s*' ~ (template_storage | regex_escape) ~ ':[^,]+(?:,.*)?\bpre-enrolled-keys=0\b.*$'
-        )
+        - name: Ensure vendor snippet content exists
+          ansible.builtin.copy:
+            dest: '{{ template_vendor_snippet_path }}'
+            content: '{{ template_vendor_snippet_content }}'
+            owner: root
+            group: root
+            mode: '0644'
 
-    - name: Import cloud image into Proxmox storage when missing
-      ansible.builtin.command:
-        argv:
-          - qm
-          - importdisk
-          - '{{ template_vmid | string }}'
-          - '{{ template_image_path }}'
-          - '{{ template_storage }}'
-      when: template_expected_disk_ref not in (template_vm_config_after_create.stdout | default(''))
+        - name: Capture existing EFI disk reference
+          ansible.builtin.set_fact:
+            template_existing_efidisk_ref: >-
+              {{
+                (
+                  (template_vm_config_after_create.stdout | default(''))
+                  | regex_findall('(?m)^efidisk0:\s*([^,\s]+)')
+                  | first
+                ) | default('', true)
+              }}
 
-    - name: Read template config after disk import
-      ansible.builtin.command: 'qm config {{ template_vmid }}'
-      register: template_vm_config_after_import
-      changed_when: false
-
-    - name: Ensure imported disk is present in config
-      ansible.builtin.assert:
-        that:
-          - template_expected_disk_ref in (template_vm_config_after_import.stdout | default(''))
-        fail_msg: Imported disk {{ template_expected_disk_ref }} was not found in qm config output on {{ inventory_hostname }}.
-
-    - name: Attach imported disk as virtio0 with discard enabled
-      ansible.builtin.command:
-        argv:
-          - qm
-          - set
-          - '{{ template_vmid | string }}'
-          - --scsihw
-          - virtio-scsi-pci
-          - --virtio0
-          - '{{ template_expected_disk_ref }},discard=on'
-      when: >-
-        (template_vm_config_after_import.stdout | default('')) is search('(?m)^unused[0-9]+:\s*' ~ (template_expected_disk_ref | regex_escape) ~ '(?:,.*)?$') or
-        (template_vm_config_after_import.stdout | default('')) is not search('(?m)^scsihw:\s*virtio-scsi-pci\s*$') or
-        (template_vm_config_after_import.stdout | default('')) is not search('(?m)^virtio0:\s*' ~ (template_expected_disk_ref | regex_escape) ~ '(?:,.*)?\bdiscard=on\b.*$')
-
-    - name: Read template config after disk attach
-      ansible.builtin.command: 'qm config {{ template_vmid }}'
-      register: template_vm_config_after_disk
-      changed_when: false
-
-    - name: Reuse supplied password hash when already encrypted
-      ansible.builtin.set_fact:
-        template_cloudinit_password_value: '{{ template_cloudinit_password }}'
-      no_log: true
-      when: template_cloudinit_password is match('^\$6\$')
-
-    - name: Build deterministic SHA-512 password hash for cloud-init
-      ansible.builtin.command:
-        argv:
-          - openssl
-          - passwd
-          - -6
-          - -salt
-          - '{{ template_cloudinit_password_salt }}'
-          - '{{ template_cloudinit_password }}'
-      register: template_cloudinit_password_hash
-      changed_when: false
-      no_log: true
-      when: template_cloudinit_password is not match('^\$6\$')
-
-    - name: Store derived cloud-init password hash
-      ansible.builtin.set_fact:
-        template_cloudinit_password_value: '{{ template_cloudinit_password_hash.stdout }}'
-      no_log: true
-      when: template_cloudinit_password is not match('^\$6\$')
-
-    - name: Apply base template hardware and cloud-init metadata settings
-      ansible.builtin.command:
-        argv:
-          - qm
-          - set
-          - '{{ template_vmid | string }}'
-          - --ostype
-          - '{{ template_ostype }}'
-          - --memory
-          - '{{ template_memory_mb | string }}'
-          - --agent
-          - '1'
-          - --bios
-          - '{{ template_bios }}'
-          - --machine
-          - '{{ template_machine }}'
-          - --cpu
-          - '{{ template_cpu_type }}'
-          - --sockets
-          - '{{ template_sockets | string }}'
-          - --cores
-          - '{{ template_cores | string }}'
-          - --vga
-          - '{{ template_vga }}'
-          - --serial0
-          - '{{ template_serial0 }}'
-          - --net0
-          - 'virtio,bridge={{ template_bridge }}'
-          - --boot
-          - 'order=virtio0'
-          - --ide2
-          - '{{ template_cloudinit_drive_ref }}'
-          - --cicustom
-          - 'vendor={{ template_vendor_snippet_ref }}'
-          - --tags
-          - '{{ template_tags }}'
-      when: >-
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ostype:\s*' ~ (template_ostype | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^memory:\s*' ~ (template_memory_mb | string) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^agent:\s*1(?:,.*)?$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^bios:\s*' ~ (template_bios | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^machine:\s*' ~ (template_machine | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^cpu:\s*' ~ (template_cpu_type | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^sockets:\s*' ~ (template_sockets | string) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^cores:\s*' ~ (template_cores | string) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^vga:\s*' ~ (template_vga | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^serial0:\s*' ~ (template_serial0 | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^net0:\s*virtio=[^,]+,bridge=' ~ (template_bridge | regex_escape) ~ '(?:,.*)?$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^boot:\s*order=virtio0\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ide2:\s*' ~ (template_cloudinit_drive_ref | regex_escape) ~ '(?:,.*)?$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^cicustom:\s*vendor=' ~ (template_vendor_snippet_ref | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^tags:\s*' ~ (template_tags | regex_escape) ~ '\s*$')
-
-    - name: Apply cloud-init login settings and SSH keys
-      ansible.builtin.command:
-        argv:
-          - qm
-          - set
-          - '{{ template_vmid | string }}'
-          - --ciuser
-          - '{{ template_cloudinit_user }}'
-          - --ciupgrade
-          - '{{ template_cloudinit_upgrade_value }}'
-          - --cipassword
-          - '{{ template_cloudinit_password_value }}'
-          - --sshkeys
-          - '{{ template_sshkeys_path }}'
-          - --ipconfig0
-          - '{{ template_ipconfig0 }}'
-      no_log: true
-      when: >-
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ciuser:\s*' ~ (template_cloudinit_user | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ciupgrade:\s*' ~ template_cloudinit_upgrade_value ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^cipassword:\s*' ~ (template_cloudinit_password_value | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ipconfig0:\s*' ~ (template_ipconfig0 | regex_escape) ~ '\s*$') or
-        (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^sshkeys:\s*.+$') or
-        (template_force_sshkeys_update | bool)
-
-    - name: Refresh cloud-init metadata
-      ansible.builtin.command: 'qm cloudinit update {{ template_vmid }}'
-      changed_when: false
-
-    - name: Read template config before template conversion
-      ansible.builtin.command: 'qm config {{ template_vmid }}'
-      register: template_vm_config_before_template
-      changed_when: false
-
-    - name: Convert VM to template
-      ansible.builtin.command: 'qm template {{ template_vmid }}'
-      when: (template_vm_config_before_template.stdout | default('')) is not search('(?m)^template:\s*1\s*$')
-
-    - name: Read final template config
-      ansible.builtin.command: 'qm config {{ template_vmid }}'
-      register: template_vm_config_final
-      changed_when: false
-
-    - name: Verify final template configuration
-      ansible.builtin.assert:
-        that:
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^name:\s*' ~ (template_name | regex_escape) ~ '\s*$')
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^template:\s*1\s*$')
-          - >-
-            (template_vm_config_final.stdout | default('')) is search(
-              '(?m)^efidisk0:\s*' ~ (template_storage | regex_escape) ~ ':[^,]+(?:,.*)?\bpre-enrolled-keys=0\b.*$'
+        - name: Ensure EFI disk exists
+          ansible.builtin.command:
+            argv:
+              - qm
+              - set
+              - '{{ template_vmid | string }}'
+              - --efidisk0
+              - "{{ ((template_existing_efidisk_ref | length > 0) | ternary(template_existing_efidisk_ref, template_efidisk_ref)) ~ ',pre-enrolled-keys=0' }}"
+          when: >-
+            (template_vm_config_after_create.stdout | default('')) is not search(
+              '(?m)^efidisk0:\s*' ~ (template_storage | regex_escape) ~ ':[^,\s]+(?:,.*)?pre-enrolled-keys=0(?:,.*)?$'
             )
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^virtio0:\s*' ~ (template_expected_disk_ref | regex_escape) ~ '(?:,.*)?\bdiscard=on\b.*$')
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^boot:\s*order=virtio0\s*$')
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^ide2:\s*' ~ (template_cloudinit_drive_ref | regex_escape) ~ '(?:,.*)?$')
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^cicustom:\s*vendor=' ~ (template_vendor_snippet_ref | regex_escape) ~ '\s*$')
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^ciuser:\s*' ~ (template_cloudinit_user | regex_escape) ~ '\s*$')
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^ciupgrade:\s*' ~ template_cloudinit_upgrade_value ~ '\s*$')
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^ipconfig0:\s*' ~ (template_ipconfig0 | regex_escape) ~ '\s*$')
-          - (template_vm_config_final.stdout | default('')) is search('(?m)^tags:\s*' ~ (template_tags | regex_escape) ~ '\s*$')
-        fail_msg: Final template verification failed on {{ inventory_hostname }}. Inspect qm config {{ template_vmid }}.
+
+        - name: Read template config before root disk import
+          ansible.builtin.command: 'qm config {{ template_vmid }}'
+          register: template_vm_config_before_import
+          changed_when: false
+
+        - name: Capture current EFI disk reference before root disk import
+          ansible.builtin.set_fact:
+            template_current_efidisk_ref: >-
+              {{
+                (
+                  (template_vm_config_before_import.stdout | default(''))
+                  | regex_findall('(?m)^efidisk0:\s*([^,\s]+)')
+                  | first
+                ) | default('', true)
+              }}
+
+        - name: Capture current root disk references before import
+          ansible.builtin.set_fact:
+            template_attached_root_disk_ref: >-
+              {{
+                (
+                  (template_vm_config_before_import.stdout | default(''))
+                  | regex_findall(
+                    '(?m)^virtio0:\s*(' ~
+                    (template_storage | regex_escape) ~ ':(?:base|vm)-' ~ (template_vmid | string) ~ '-disk-[0-9]+)(?:,.*)?size=' ~ (template_disk_size | regex_escape) ~ '(?:,.*)?$'
+                  )
+                  | first
+                ) | default('', true)
+              }}
+            template_unused_root_disk_refs: >-
+              {{
+                (
+                  (template_vm_config_before_import.stdout | default(''))
+                  | regex_findall(
+                    '(?m)^unused[0-9]+:\s*(' ~
+                    (template_storage | regex_escape) ~ ':(?:base|vm)-' ~ (template_vmid | string) ~ '-disk-[0-9]+)(?:,.*)?$'
+                  )
+                  | reject('equalto', template_current_efidisk_ref | default(''))
+                  | list
+                )
+              }}
+
+        - name: Import cloud image into Proxmox storage when root disk is missing
+          ansible.builtin.command:
+            argv:
+              - qm
+              - importdisk
+              - '{{ template_vmid | string }}'
+              - '{{ template_image_path }}'
+              - '{{ template_storage }}'
+          when:
+            - (template_attached_root_disk_ref | length) == 0
+            - (template_unused_root_disk_refs | length) == 0
+
+        - name: Read template config after disk import
+          ansible.builtin.command: 'qm config {{ template_vmid }}'
+          register: template_vm_config_after_import
+          changed_when: false
+
+        - name: Capture candidate root disk references after import
+          ansible.builtin.set_fact:
+            template_attached_root_disk_ref_after_import: >-
+              {{
+                (
+                  (template_vm_config_after_import.stdout | default(''))
+                  | regex_findall(
+                    '(?m)^virtio0:\s*(' ~
+                    (template_storage | regex_escape) ~ ':(?:base|vm)-' ~ (template_vmid | string) ~ '-disk-[0-9]+)(?:,.*)?size=' ~ (template_disk_size | regex_escape) ~ '(?:,.*)?$'
+                  )
+                  | first
+                ) | default('', true)
+              }}
+            template_unused_root_disk_refs_after_import: >-
+              {{
+                (
+                  (template_vm_config_after_import.stdout | default(''))
+                  | regex_findall(
+                    '(?m)^unused[0-9]+:\s*(' ~
+                    (template_storage | regex_escape) ~ ':(?:base|vm)-' ~ (template_vmid | string) ~ '-disk-[0-9]+)(?:,.*)?$'
+                  )
+                  | reject('equalto', template_current_efidisk_ref | default(''))
+                  | list
+                )
+              }}
+
+        - name: Select template root disk reference
+          ansible.builtin.set_fact:
+            template_root_disk_ref: >-
+              {{
+                template_attached_root_disk_ref_after_import
+                if (template_attached_root_disk_ref_after_import | length) > 0
+                else ((template_unused_root_disk_refs_after_import | last) | default('', true))
+              }}
+
+        - name: Ensure imported root disk is present in config
+          ansible.builtin.assert:
+            that:
+              - (template_root_disk_ref | length) > 0
+            fail_msg: No candidate root disk was found in qm config output on {{ inventory_hostname }} after disk import.
+
+        - name: Attach imported disk as virtio0 with discard enabled
+          ansible.builtin.command:
+            argv:
+              - qm
+              - set
+              - '{{ template_vmid | string }}'
+              - --scsihw
+              - virtio-scsi-pci
+              - --virtio0
+              - '{{ template_root_disk_ref }},discard=on'
+          when: >-
+            (template_vm_config_after_import.stdout | default('')) is search('(?m)^unused[0-9]+:\s*' ~ (template_root_disk_ref | regex_escape) ~ '(?:,.*)?$') or
+            (template_vm_config_after_import.stdout | default('')) is not search('(?m)^scsihw:\s*virtio-scsi-pci\s*$') or
+            (template_vm_config_after_import.stdout | default('')) is not search('(?m)^virtio0:\s*' ~ (template_root_disk_ref | regex_escape) ~ '(?:,.*)?discard=on(?:,.*)?size=' ~ (template_disk_size | regex_escape) ~ '(?:,.*)?$')
+
+        - name: Read template config after disk attach
+          ansible.builtin.command: 'qm config {{ template_vmid }}'
+          register: template_vm_config_after_disk
+          changed_when: false
+
+        - name: Reuse supplied password hash when already encrypted
+          ansible.builtin.set_fact:
+            template_cloudinit_password_value: '{{ template_cloudinit_password }}'
+          no_log: true
+          when: template_cloudinit_password is match('^\$6\$')
+
+        - name: Build deterministic SHA-512 password hash for cloud-init
+          ansible.builtin.command:
+            argv:
+              - openssl
+              - passwd
+              - -6
+              - -salt
+              - '{{ template_cloudinit_password_salt }}'
+              - '{{ template_cloudinit_password }}'
+          register: template_cloudinit_password_hash
+          changed_when: false
+          no_log: true
+          when: template_cloudinit_password is not match('^\$6\$')
+
+        - name: Store derived cloud-init password hash
+          ansible.builtin.set_fact:
+            template_cloudinit_password_value: '{{ template_cloudinit_password_hash.stdout }}'
+          no_log: true
+          when: template_cloudinit_password is not match('^\$6\$')
+
+        - name: Apply base template hardware and cloud-init metadata settings
+          ansible.builtin.command:
+            argv:
+              - qm
+              - set
+              - '{{ template_vmid | string }}'
+              - --ostype
+              - '{{ template_ostype }}'
+              - --memory
+              - '{{ template_memory_mb | string }}'
+              - --agent
+              - '1'
+              - --bios
+              - '{{ template_bios }}'
+              - --machine
+              - '{{ template_machine }}'
+              - --cpu
+              - '{{ template_cpu_type }}'
+              - --sockets
+              - '{{ template_sockets | string }}'
+              - --cores
+              - '{{ template_cores | string }}'
+              - --vga
+              - '{{ template_vga }}'
+              - --serial0
+              - '{{ template_serial0 }}'
+              - --net0
+              - 'virtio,bridge={{ template_bridge }}'
+              - --boot
+              - 'order=virtio0'
+              - --ide2
+              - '{{ template_cloudinit_drive_ref }}'
+              - --cicustom
+              - 'vendor={{ template_vendor_snippet_ref }}'
+              - --tags
+              - '{{ template_tags }}'
+          when: >-
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ostype:\s*' ~ (template_ostype | regex_escape) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^memory:\s*' ~ (template_memory_mb | string) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^agent:\s*1(?:,.*)?$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^bios:\s*' ~ (template_bios | regex_escape) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^machine:\s*' ~ (template_machine | regex_escape) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^cpu:\s*' ~ (template_cpu_type | regex_escape) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^sockets:\s*' ~ (template_sockets | string) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^cores:\s*' ~ (template_cores | string) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^vga:\s*' ~ (template_vga | regex_escape) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^serial0:\s*' ~ (template_serial0 | regex_escape) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^net0:\s*virtio=[^,]+,bridge=' ~ (template_bridge | regex_escape) ~ '(?:,.*)?$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^boot:\s*order=virtio0\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ide2:\s*' ~ (template_cloudinit_drive_ref | regex_escape) ~ '(?:,.*)?$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^cicustom:\s*vendor=' ~ (template_vendor_snippet_ref | regex_escape) ~ '\s*$') or
+            (
+              template_expected_tags
+              | difference(
+                  ((template_vm_config_after_disk.stdout | default('') | regex_findall('(?m)^tags:\s*(.+)$') | first | default('', true)) | split(';'))
+                )
+              | length
+            ) > 0
+
+        - name: Apply cloud-init login settings and SSH keys
+          ansible.builtin.command:
+            argv:
+              - qm
+              - set
+              - '{{ template_vmid | string }}'
+              - --ciuser
+              - '{{ template_cloudinit_user }}'
+              - --ciupgrade
+              - '{{ template_cloudinit_upgrade_value }}'
+              - --cipassword
+              - '{{ template_cloudinit_password_value }}'
+              - --sshkeys
+              - '{{ template_sshkeys_path }}'
+              - --ipconfig0
+              - '{{ template_ipconfig0 }}'
+          no_log: true
+          when: >-
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ciuser:\s*' ~ (template_cloudinit_user | regex_escape) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ciupgrade:\s*' ~ template_cloudinit_upgrade_value ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^cipassword:\s*\*+$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^ipconfig0:\s*' ~ (template_ipconfig0 | regex_escape) ~ '\s*$') or
+            (template_vm_config_after_disk.stdout | default('')) is not search('(?m)^sshkeys:\s*.+$') or
+            (template_force_sshkeys_update | bool)
+
+        - name: Refresh cloud-init metadata
+          ansible.builtin.command: 'qm cloudinit update {{ template_vmid }}'
+          changed_when: false
+
+        - name: Read template config before template conversion
+          ansible.builtin.command: 'qm config {{ template_vmid }}'
+          register: template_vm_config_before_template
+          changed_when: false
+
+        - name: Convert VM to template
+          ansible.builtin.command: 'qm template {{ template_vmid }}'
+          when: (template_vm_config_before_template.stdout | default('')) is not search('(?m)^template:\s*1\s*$')
+
+        - name: Read final template config
+          ansible.builtin.command: 'qm config {{ template_vmid }}'
+          register: template_vm_config_final
+          changed_when: false
+
+        - name: Verify final template configuration
+          ansible.builtin.assert:
+            that:
+              - (template_vm_config_final.stdout | default('')) is search('(?m)^name:\s*' ~ (template_name | regex_escape) ~ '\s*$')
+              - (template_vm_config_final.stdout | default('')) is search('(?m)^template:\s*1\s*$')
+              - >-
+                (template_vm_config_final.stdout | default('')) is search(
+                  '(?m)^efidisk0:\s*' ~ (template_storage | regex_escape) ~ ':[^,\s]+(?:,.*)?pre-enrolled-keys=0(?:,.*)?$'
+                )
+              - >-
+                (template_vm_config_final.stdout | default('')) is search(
+                  '(?m)^virtio0:\s*' ~ (template_storage | regex_escape) ~ ':(?:base|vm)-' ~ (template_vmid | string) ~ '-disk-[0-9]+(?:,.*)?discard=on(?:,.*)?size=' ~ (template_disk_size | regex_escape) ~ '(?:,.*)?$'
+                )
+              - (template_vm_config_final.stdout | default('')) is search('(?m)^boot:\s*order=virtio0\s*$')
+              - (template_vm_config_final.stdout | default('')) is search('(?m)^ide2:\s*' ~ (template_cloudinit_drive_ref | regex_escape) ~ '(?:,.*)?$')
+              - (template_vm_config_final.stdout | default('')) is search('(?m)^cicustom:\s*vendor=' ~ (template_vendor_snippet_ref | regex_escape) ~ '\s*$')
+              - (template_vm_config_final.stdout | default('')) is search('(?m)^ciuser:\s*' ~ (template_cloudinit_user | regex_escape) ~ '\s*$')
+              - (template_vm_config_final.stdout | default('')) is search('(?m)^ciupgrade:\s*' ~ template_cloudinit_upgrade_value ~ '\s*$')
+              - (template_vm_config_final.stdout | default('')) is search('(?m)^ipconfig0:\s*' ~ (template_ipconfig0 | regex_escape) ~ '\s*$')
+              - >-
+                (
+                  template_expected_tags
+                  | difference(
+                      ((template_vm_config_final.stdout | default('') | regex_findall('(?m)^tags:\s*(.+)$') | first | default('', true)) | split(';'))
+                    )
+                  | length
+                ) == 0
+            fail_msg: Final template verification failed on {{ inventory_hostname }}. Inspect qm config {{ template_vmid }}.

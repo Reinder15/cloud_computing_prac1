@@ -1,6 +1,7 @@
 ---
 template_vmid: 2000
 template_name: ubuntu-2404-cloudinit-template
+template_source_node: node1
 
 template_image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
 template_image_path: /var/lib/vz/template/qemu/noble-server-cloudimg-amd64.img
@@ -9,7 +10,6 @@ template_disk_size: '{{ template_disk_size_gb }}G'
 template_disk_size_bytes: '{{ template_disk_size_gb | int * 1024 * 1024 * 1024 }}'
 
 template_storage: local-lvm
-template_expected_disk_ref: '{{ template_storage }}:vm-{{ template_vmid }}-disk-1'
 template_cloudinit_drive_ref: '{{ template_storage }}:cloudinit'
 template_efidisk_ref: '{{ template_storage }}:0,pre-enrolled-keys=0'
 
