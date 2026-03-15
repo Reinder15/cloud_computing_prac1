@@ -1,0 +1,303 @@
+---
+- name: Provision VMs from deterministic rules
+  hosts: prox_nodes
+  become: true
+  gather_facts: false
+  serial: 1
+  vars_files:
+    - ../vars/provision_vm.yml
+  vars:
+    vm_api_delegate_host: '{{ groups["prox_nodes"] | first }}'
+    vm_api_delegate_addr: '{{ hostvars[vm_api_delegate_host].ansible_host | default(vm_api_delegate_host) }}'
+  module_defaults:
+    group/community.proxmox.proxmox:
+      api_user: '{{ lookup("ansible.builtin.env", "PROXMOX_USER") | default("root@pam", true) }}'
+      api_password: '{{ lookup("ansible.builtin.env", "PROXMOX_PASSWORD") | default(omit, true) }}'
+      api_token_id: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_ID") | default(omit, true) }}'
+      api_token_secret: '{{ lookup("ansible.builtin.env", "PROXMOX_TOKEN_SECRET") | default(omit, true) }}'
+      validate_certs: '{{ (lookup("ansible.builtin.env", "PROXMOX_VALIDATE_CERTS") | default("false", true)) | bool }}'
+
+  pre_tasks:
+    - name: Validate generated VM plan settings
+      ansible.builtin.assert:
+        that:
+          - vm_plan_count | int >= 0
+          - vm_plan_vmid_start | int >= 100
+          - vm_plan_ip_last_octet_start | int >= 2
+          - (vm_plan_ip_last_octet_start | int + vm_plan_count | int - 1) <= 254
+          - vm_placement_nodes | length > 0
+        fail_msg: Invalid VM plan values. Check ansible/vars/provision_vm.yml.
+      run_once: true
+
+    - name: Validate placement nodes exist in prox_nodes inventory group
+      ansible.builtin.assert:
+        that:
+          - item in groups['prox_nodes']
+        fail_msg: Placement node {{ item }} is not present in group prox_nodes.
+      loop: '{{ vm_placement_nodes }}'
+      run_once: true
+
+    - name: Require API credentials for community.proxmox
+      ansible.builtin.assert:
+        that:
+          - (lookup('ansible.builtin.env', 'PROXMOX_PASSWORD') | length > 0) or ((lookup('ansible.builtin.env', 'PROXMOX_TOKEN_ID') | length > 0) and (lookup('ansible.builtin.env', 'PROXMOX_TOKEN_SECRET') | length > 0))
+        fail_msg: Set PROXMOX_PASSWORD or PROXMOX_TOKEN_ID + PROXMOX_TOKEN_SECRET before running API-driven provisioning.
+      run_once: true
+      delegate_to: '{{ vm_api_delegate_host }}'
+
+    - name: Validate template VM exists
+      community.proxmox.proxmox_vm_info:
+        api_host: '{{ vm_api_delegate_addr }}'
+        type: qemu
+        vmid: '{{ vm_template_id | int }}'
+      register: template_vm_info
+      run_once: true
+      delegate_to: '{{ vm_api_delegate_host }}'
+
+    - name: Fail when source template VM is missing
+      ansible.builtin.assert:
+        that:
+          - (template_vm_info.proxmox_vms | default([]) | length) > 0
+        fail_msg: Source VMID {{ vm_template_id }} was not found in the Proxmox cluster.
+      run_once: true
+
+  tasks:
+    - name: Build generated VM plan for this host
+      ansible.builtin.set_fact:
+        vm_instances_for_host: '{{ (vm_instances_for_host | default([])) + [instance] }}'
+      vars:
+        idx: '{{ item | int }}'
+        vmid: '{{ (vm_plan_vmid_start | int) + (idx | int) }}'
+        ip_last_octet: '{{ (vm_plan_ip_last_octet_start | int) + (idx | int) }}'
+        target_node: '{{ vm_placement_nodes[idx % (vm_placement_nodes | length)] }}'
+        vm_name: '{{ vm_name_prefix }}{{ vmid }}'
+        key_base: '{{ vm_ssh_dir }}/{{ vm_name }}_{{ vmid }}_id_{{ vm_ssh_key_type }}'
+        instance:
+          vmid: '{{ vmid }}'
+          name: '{{ vm_name }}'
+          node: '{{ target_node }}'
+          ip: '{{ vm_ip_prefix }}.{{ ip_last_octet }}'
+          ssh_user: '{{ vm_ssh_user_prefix }}{{ vmid }}'
+          key_base: '{{ key_base }}'
+          auth_keys_file: '{{ key_base }}_authorized_keys'
+      loop: '{{ range(0, vm_plan_count | int) | list }}'
+      when: target_node == inventory_hostname
+
+    - name: Merge explicit VM instances for this host
+      ansible.builtin.set_fact:
+        vm_instances_for_host: '{{ (vm_instances_for_host | default([])) + [normalized_vm] }}'
+      vars:
+        inferred_key_base: '{{ vm_ssh_dir }}/{{ item.name }}_{{ item.vmid }}_id_{{ vm_ssh_key_type }}'
+        normalized_vm:
+          vmid: '{{ item.vmid | int }}'
+          name: '{{ item.name }}'
+          node: '{{ item.node }}'
+          ip: '{{ item.ip }}'
+          ssh_user: '{{ item.ssh_user }}'
+          key_base: '{{ item.key_base | default(inferred_key_base) }}'
+          auth_keys_file: '{{ item.auth_keys_file | default((item.key_base | default(inferred_key_base)) ~ "_authorized_keys") }}'
+      loop: '{{ vm_instances_extra }}'
+      when: item.node == inventory_hostname
+
+    - name: Show planned VM instances on this host
+      ansible.builtin.debug:
+        msg: '{{ vm_instances_for_host | default([]) }}'
+      when: (vm_instances_for_host | default([])) | length > 0
+
+    - name: Ensure shared SSH directory exists
+      ansible.builtin.file:
+        path: '{{ vm_ssh_dir }}'
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      when: (vm_instances_for_host | default([])) | length > 0
+
+    - name: Generate per-VM SSH keypairs
+      ansible.builtin.command: >-
+        ssh-keygen -t {{ vm_ssh_key_type }}
+        -N ""
+        -f {{ item.key_base }}
+        -C {{ item.ssh_user }}@{{ item.name }}-{{ item.vmid }}
+      args:
+        creates: '{{ item.key_base }}'
+      loop: '{{ vm_instances_for_host | default([]) }}'
+      when:
+        - vm_generate_keys | bool
+        - (vm_instances_for_host | default([])) | length > 0
+
+    - name: Ensure private key permissions are strict
+      ansible.builtin.file:
+        path: '{{ item.key_base }}'
+        owner: root
+        group: root
+        mode: '0600'
+      loop: '{{ vm_instances_for_host | default([]) }}'
+      when:
+        - vm_generate_keys | bool
+        - (vm_instances_for_host | default([])) | length > 0
+
+    - name: Ensure public key permissions are world-readable
+      ansible.builtin.file:
+        path: '{{ item.key_base }}.pub'
+        owner: root
+        group: root
+        mode: '0644'
+      loop: '{{ vm_instances_for_host | default([]) }}'
+      when:
+        - vm_generate_keys | bool
+        - (vm_instances_for_host | default([])) | length > 0
+
+    - name: Build cloud-init authorized key files from generated public keys
+      ansible.builtin.copy:
+        src: '{{ item.key_base }}.pub'
+        dest: '{{ item.auth_keys_file }}'
+        owner: root
+        group: root
+        mode: '0644'
+        remote_src: true
+      loop: '{{ vm_instances_for_host | default([]) }}'
+      when:
+        - vm_generate_keys | bool
+        - (vm_instances_for_host | default([])) | length > 0
+
+    - name: Ensure cloud-init authorized key files exist
+      ansible.builtin.stat:
+        path: '{{ item.auth_keys_file }}'
+      register: auth_key_stats
+      loop: '{{ vm_instances_for_host | default([]) }}'
+      when: (vm_instances_for_host | default([])) | length > 0
+
+    - name: Fail if any cloud-init authorized key file is missing
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        fail_msg: Missing cloud-init authorized key file for {{ item.item.name }} at {{ item.item.auth_keys_file }}.
+      loop: '{{ auth_key_stats.results | default([]) }}'
+      when: (vm_instances_for_host | default([])) | length > 0
+
+    - name: Read cloud-init authorized key file content
+      ansible.builtin.slurp:
+        src: '{{ item.auth_keys_file }}'
+      register: auth_key_contents
+      loop: '{{ vm_instances_for_host | default([]) }}'
+      when: (vm_instances_for_host | default([])) | length > 0
+
+    - name: Build authorized key map by VMID
+      ansible.builtin.set_fact:
+        vm_auth_keys_by_vmid: '{{ (vm_auth_keys_by_vmid | default({})) | combine({(item.item.vmid | int): (item.content | b64decode)}) }}'
+      loop: '{{ auth_key_contents.results | default([]) }}'
+      when: (vm_instances_for_host | default([])) | length > 0
+
+    - name: Clone VM when absent
+      community.proxmox.proxmox_kvm:
+        api_host: '{{ vm_api_delegate_addr }}'
+        clone: 'template-{{ vm_template_id }}'
+        vmid: '{{ vm_template_id | int }}'
+        newid: '{{ item.vmid | int }}'
+        name: '{{ item.name }}'
+        node: '{{ item.node }}'
+        storage: '{{ vm_storage }}'
+        full: true
+        timeout: '{{ vm_clone_timeout | default(600) | int }}'
+        state: present
+      register: vm_clone_results
+      loop: '{{ vm_instances_for_host | default([]) }}'
+      delegate_to: '{{ vm_api_delegate_host }}'
+      when: (vm_instances_for_host | default([])) | length > 0
+
+    - name: Resize VM disk on first clone
+      community.proxmox.proxmox_disk:
+        api_host: '{{ vm_api_delegate_addr }}'
+        vmid: '{{ item.item.vmid | int }}'
+        disk: virtio0
+        size: '{{ vm_disk_size }}'
+        state: resized
+      loop: '{{ vm_clone_results.results | default([]) }}'
+      delegate_to: '{{ vm_api_delegate_host }}'
+      when: item.changed
+
+    - name: Apply VM resource and network settings
+      community.proxmox.proxmox_kvm:
+        api_host: '{{ vm_api_delegate_addr }}'
+        vmid: '{{ item.item.vmid | int }}'
+        node: '{{ item.item.node }}'
+        net:
+          net0: 'virtio,bridge={{ vm_bridge }},rate={{ vm_net_rate }}'
+        ipconfig:
+          ipconfig0: 'ip={{ item.item.ip }}/24,gw={{ vm_gateway }}'
+        nameservers:
+          - '{{ vm_nameserver }}'
+        cores: '{{ vm_cores | int }}'
+        memory: '{{ vm_memory | int }}'
+        balloon: 0
+        update: true
+        update_unsafe: true
+        state: present
+      loop: '{{ vm_clone_results.results | default([]) }}'
+      delegate_to: '{{ vm_api_delegate_host }}'
+      when: vm_force_reconfigure | bool or item.changed
+
+    - name: Apply cloud-init login user and key file
+      community.proxmox.proxmox_kvm:
+        api_host: '{{ vm_api_delegate_addr }}'
+        vmid: '{{ item.item.vmid | int }}'
+        node: '{{ item.item.node }}'
+        ciuser: '{{ item.item.ssh_user }}'
+        sshkeys: '{{ vm_auth_keys_by_vmid[item.item.vmid | int] }}'
+        ciupgrade: '{{ vm_cloudinit_upgrade | bool }}'
+        update: true
+        state: present
+      loop: '{{ vm_clone_results.results | default([]) }}'
+      delegate_to: '{{ vm_api_delegate_host }}'
+      when: vm_force_reconfigure | bool or item.changed
+
+    - name: Refresh cloud-init configuration
+      ansible.builtin.command: 'qm cloudinit update {{ item.item.vmid }}'
+      loop: '{{ vm_clone_results.results | default([]) }}'
+      changed_when: false
+      when: vm_force_reconfigure | bool or item.changed
+
+    - name: Ensure VM is running
+      community.proxmox.proxmox_kvm:
+        api_host: '{{ vm_api_delegate_addr }}'
+        vmid: '{{ item.item.vmid | int }}'
+        node: '{{ item.item.node }}'
+        state: started
+      register: vm_start_results
+      loop: '{{ vm_clone_results.results | default([]) }}'
+      delegate_to: '{{ vm_api_delegate_host }}'
+      when:
+        - vm_start_after_provision | bool
+        - (vm_clone_results.results | default([])) | length > 0
+
+    - name: Verify cloud-init SSH settings via Proxmox API
+      community.proxmox.proxmox_vm_info:
+        api_host: '{{ vm_api_delegate_addr }}'
+        type: qemu
+        node: '{{ item.item.node }}'
+        vmid: '{{ item.item.vmid | int }}'
+        config: current
+      register: vm_ssh_config_checks
+      changed_when: false
+      failed_when: >-
+        (vm_ssh_config_checks.proxmox_vms | default([]) | length) == 0 or
+        (((vm_ssh_config_checks.proxmox_vms[0].config | default({})).ciuser | default('')) != (item.item.ssh_user | string)) or
+        ((((vm_ssh_config_checks.proxmox_vms[0].config | default({})).sshkeys | default('') | string) | length) == 0)
+      loop: '{{ vm_clone_results.results | default([]) }}'
+      loop_control:
+        label: '{{ item.item.name }} ({{ item.item.vmid }})'
+      delegate_to: '{{ vm_api_delegate_host }}'
+      when:
+        - vm_verify_ssh_setup | default(true) | bool
+        - (vm_verify_ssh_for_existing | default(false) | bool) or item.changed
+
+    - name: Add provisioned VMs to in-memory inventory for follow-up plays
+      ansible.builtin.add_host:
+        name: '{{ item.item.name }}'
+        groups: vm_provisioned
+        ansible_host: '{{ item.item.ip }}'
+        ansible_user: '{{ item.item.ssh_user }}'
+        ansible_ssh_private_key_file: '{{ item.item.key_base }}'
+      loop: '{{ vm_clone_results.results | default([]) }}'
+      when: (vm_clone_results.results | default([])) | length > 0

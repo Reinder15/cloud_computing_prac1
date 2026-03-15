@@ -1,9 +1,3 @@
-# Safe defaults:
-# - baseline tasks always run
-# - cluster/Ceph/CephFS stages are opt-in via extra vars
-# - community.proxmox modules are used where available
-# - OSD, pool, and CephFS creation still use CLI because no collection module covers those steps
-
 - name: Bootstrap Proxmox baseline on all nodes
   hosts: prox_nodes
   become: true
