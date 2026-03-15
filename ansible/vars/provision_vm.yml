@@ -1,7 +1,7 @@
 ---
 # Proxmox template and VM hardware defaults
 vm_template_id: 1000
-vm_storage: local-lvm
+vm_storage: ceph-pool
 vm_bridge: vmbr0
 vm_gateway: 10.24.38.1
 vm_nameserver: 8.8.8.8
