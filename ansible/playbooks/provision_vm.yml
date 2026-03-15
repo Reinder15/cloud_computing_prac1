@@ -322,12 +322,56 @@
     - name: Add provisioned VMs to in-memory inventory for follow-up plays
       ansible.builtin.add_host:
         name: '{{ item.item.name }}'
-        groups: vm_provisioned
+        groups: vm_provisioned,vm_wordpress
         ansible_host: '{{ item.item.ip }}'
         ansible_user: '{{ item.item.ssh_user }}'
         ansible_ssh_private_key_file: '{{ item.item.key_base }}'
       loop: '{{ vm_clone_results.results | default([]) }}'
       when: (vm_clone_results.results | default([])) | length > 0
+
+- name: Persist provisioned VMs in vm_wordpress inventory group
+  hosts: localhost
+  gather_facts: false
+  vars:
+    vm_inventory_path: '{{ playbook_dir }}/../hosts'
+
+  tasks:
+    - name: Initialize persistent VM inventory list
+      ansible.builtin.set_fact:
+        vm_persistent_inventory_entries: []
+
+    - name: Collect provisioned VM entries from all Proxmox nodes
+      ansible.builtin.set_fact:
+        vm_persistent_inventory_entries: >-
+          {{
+            vm_persistent_inventory_entries +
+            (
+              hostvars[item].vm_clone_results.results
+              | default([])
+              | map(attribute='item')
+              | list
+            )
+          }}
+      loop: '{{ groups["prox_nodes"] | default([]) }}'
+
+    - name: Keep unique VM entries by name
+      ansible.builtin.set_fact:
+        vm_persistent_inventory_entries: '{{ vm_persistent_inventory_entries | unique(attribute="name") | list }}'
+
+    - name: Ensure vm_wordpress group exists in inventory file
+      ansible.builtin.lineinfile:
+        path: '{{ vm_inventory_path }}'
+        regexp: '^\[vm_wordpress\]$'
+        line: '[vm_wordpress]'
+
+    - name: Persist provisioned VMs into vm_wordpress inventory group
+      ansible.builtin.lineinfile:
+        path: '{{ vm_inventory_path }}'
+        regexp: '^{{ item.name | regex_escape }}\s+'
+        line: '{{ item.name }} ansible_host={{ item.ip }} ansible_user={{ item.ssh_user }} ansible_ssh_private_key_file={{ item.key_base }}'
+        insertafter: '^\[vm_wordpress\]$'
+      loop: '{{ vm_persistent_inventory_entries }}'
+      when: (vm_persistent_inventory_entries | length) > 0
 
 - name: Update and upgrade packages on provisioned VMs
   hosts: vm_provisioned
