@@ -38,5 +38,7 @@ baseline_packages:
   - jq
   - nvme-cli
   - python3-apt
+  - python3-proxmoxer
+  - python3-requests
 
 ceph_osd_devices: {}
