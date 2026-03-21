@@ -1,0 +1,118 @@
+---
+- name: Initialize LXC targets list for this node
+  ansible.builtin.set_fact:
+    lxc_targets_for_node: []
+
+- name: Check whether each LXC from inventory exists on this Proxmox node
+  ansible.builtin.command: 'pct status {{ lxc_target_ctid }}'
+  vars:
+    lxc_target_ctid: '{{ hostvars[item].lxc_ctid | default((item | regex_search("([0-9]+)$")), true) }}'
+  register: lxc_presence_checks
+  failed_when: false
+  changed_when: false
+  loop: '{{ groups["lxc_wordpress"] | default([]) }}'
+  when: (hostvars[item].lxc_ctid | default((item | regex_search('([0-9]+)$')), true) | string | length) > 0
+
+- name: Build LXC bootstrap target list for this node
+  ansible.builtin.set_fact:
+    lxc_targets_for_node: >-
+      {{
+        lxc_targets_for_node +
+        [
+          {
+            'host': item.item,
+            'ctid': (hostvars[item.item].lxc_ctid | default((item.item | regex_search('([0-9]+)$')), true)),
+            'ssh_user': (hostvars[item.item].ansible_user | default('root'))
+          }
+        ]
+      }}
+  loop: '{{ lxc_presence_checks.results | default([]) }}'
+  when: item.rc == 0
+
+- name: Ensure SSH public key file exists on Proxmox node
+  ansible.builtin.stat:
+    path: '{{ ssh_setup_public_keys_file }}'
+  register: lxc_ssh_public_keys_file_stat
+  when: (lxc_targets_for_node | default([])) | length > 0
+
+- name: Fail when SSH public key file is missing on Proxmox node
+  ansible.builtin.assert:
+    that:
+      - lxc_ssh_public_keys_file_stat.stat.exists
+    fail_msg: SSH public keys file {{ ssh_setup_public_keys_file }} is missing on {{ inventory_hostname }}.
+  when: (lxc_targets_for_node | default([])) | length > 0
+
+- name: Ensure each target LXC is running
+  ansible.builtin.command: 'pct start {{ item.ctid }}'
+  register: lxc_start_result
+  failed_when: >-
+    (lxc_start_result.rc != 0) and
+    ('already running' not in (lxc_start_result.stderr | default('') | lower))
+  changed_when: lxc_start_result.rc == 0
+  loop: '{{ lxc_targets_for_node | default([]) }}'
+  loop_control:
+    label: '{{ item.host }} (CT {{ item.ctid }})'
+  when: (lxc_targets_for_node | default([])) | length > 0
+
+- name: Update apt index in each target LXC
+  ansible.builtin.command: 'pct exec {{ item.ctid }} -- env DEBIAN_FRONTEND=noninteractive apt update'
+  register: lxc_ssh_apt_update_result
+  retries: 3
+  delay: 20
+  until: lxc_ssh_apt_update_result.rc == 0
+  loop: '{{ lxc_targets_for_node | default([]) }}'
+  loop_control:
+    label: '{{ item.host }} (CT {{ item.ctid }})'
+  when: (lxc_targets_for_node | default([])) | length > 0
+
+- name: Install OpenSSH server in each target LXC
+  ansible.builtin.command: 'pct exec {{ item.ctid }} -- env DEBIAN_FRONTEND=noninteractive apt install -y openssh-server'
+  register: lxc_ssh_install_result
+  retries: 3
+  delay: 20
+  until: lxc_ssh_install_result.rc == 0
+  loop: '{{ lxc_targets_for_node | default([]) }}'
+  loop_control:
+    label: '{{ item.host }} (CT {{ item.ctid }})'
+  when: (lxc_targets_for_node | default([])) | length > 0
+
+- name: Ensure SSH service is enabled in each target LXC
+  ansible.builtin.command: 'pct exec {{ item.ctid }} -- systemctl enable --now ssh'
+  register: lxc_ssh_service_result
+  failed_when: >-
+    (lxc_ssh_service_result.rc != 0) and
+    ('already' not in (lxc_ssh_service_result.stderr | default('') | lower))
+  changed_when: lxc_ssh_service_result.rc == 0
+  loop: '{{ lxc_targets_for_node | default([]) }}'
+  loop_control:
+    label: '{{ item.host }} (CT {{ item.ctid }})'
+  when: (lxc_targets_for_node | default([])) | length > 0
+
+- name: Ensure root .ssh directory exists in each target LXC
+  ansible.builtin.command: 'pct exec {{ item.ctid }} -- install -d -m 700 /root/.ssh'
+  loop: '{{ lxc_targets_for_node | default([]) }}'
+  loop_control:
+    label: '{{ item.host }} (CT {{ item.ctid }})'
+  when:
+    - (lxc_targets_for_node | default([])) | length > 0
+    - item.ssh_user == 'root'
+
+- name: Push authorized_keys into each target LXC root account
+  ansible.builtin.command: 'pct push {{ item.ctid }} {{ ssh_setup_public_keys_file }} /root/.ssh/authorized_keys'
+  register: lxc_push_authorized_keys_result
+  changed_when: lxc_push_authorized_keys_result.rc == 0
+  loop: '{{ lxc_targets_for_node | default([]) }}'
+  loop_control:
+    label: '{{ item.host }} (CT {{ item.ctid }})'
+  when:
+    - (lxc_targets_for_node | default([])) | length > 0
+    - item.ssh_user == 'root'
+
+- name: Ensure root authorized_keys permissions in each target LXC
+  ansible.builtin.command: 'pct exec {{ item.ctid }} -- chmod 600 /root/.ssh/authorized_keys'
+  loop: '{{ lxc_targets_for_node | default([]) }}'
+  loop_control:
+    label: '{{ item.host }} (CT {{ item.ctid }})'
+  when:
+    - (lxc_targets_for_node | default([])) | length > 0
+    - item.ssh_user == 'root'

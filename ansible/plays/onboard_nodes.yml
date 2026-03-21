@@ -1,0 +1,27 @@
+- hosts: prox_nodes
+  tasks: 
+
+  - name: install sudo
+    apt: 
+     name: sudo
+     update_cache: yes
+     cache_valid_time: 3600
+     state: latest
+  
+  - name: Create Ansible user
+    user: 
+      name: ansible
+      shell: '/bin/bash'
+
+  - name: Add Ansible ssh key
+    authorized_key: 
+      user: ansible
+      key: "{{ lookup('file', '/mnt/pve/cephfs/.ssh/id_rsa.pub') }}"
+  
+  - name: add ansible to sudoers group
+    copy:
+      src: sudoers_ansible
+      dest: /etc/sudoers.d/ansible
+      owner: root
+      group: root
+      mode: 0440

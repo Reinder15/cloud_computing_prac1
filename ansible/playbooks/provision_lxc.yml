@@ -215,6 +215,8 @@
         ansible_host: '{{ item.ip }}'
         ansible_user: '{{ item.ansible_user }}'
         ansible_ssh_private_key_file: '{{ item.ansible_ssh_private_key_file }}'
+        lxc_ctid: '{{ item.ctid }}'
+        lxc_node: '{{ item.node }}'
       loop: '{{ lxc_instances_for_host | default([]) }}'
       when: (lxc_instances_for_host | default([])) | length > 0
 
@@ -253,7 +255,7 @@
       ansible.builtin.lineinfile:
         path: '{{ lxc_inventory_path }}'
         regexp: '^{{ item.hostname | regex_escape }}\s+'
-        line: '{{ item.hostname }} ansible_host={{ item.ip }} ansible_user={{ item.ansible_user }} ansible_ssh_private_key_file={{ item.ansible_ssh_private_key_file }}'
+        line: '{{ item.hostname }} ansible_host={{ item.ip }} ansible_user={{ item.ansible_user }} ansible_ssh_private_key_file={{ item.ansible_ssh_private_key_file }} lxc_ctid={{ item.ctid }} lxc_node={{ item.node }}'
         insertafter: '^\[lxc_wordpress\]$'
       loop: '{{ lxc_persistent_inventory_entries }}'
       when: (lxc_persistent_inventory_entries | length) > 0
