@@ -1,0 +1,22 @@
+- hosts: node1
+  become: false
+  gather_facts: false
+  vars_files:
+    - ../secrets
+    - ../vars/create_vm.yml
+  tasks:
+
+  - name: Create new VM
+    proxmox_kvm:
+      api_user: ansible@pam
+      api_token_id: ansible-token
+      api_token_secret: "{{ api_key }}"
+      api_host: node1
+      node: node1
+      name: "{{server_name}}"
+      cores: 2
+      memory: 2048
+      net0: virtio,bridge=vmbr0
+      scsi0: ceph-pool:30
+      ostemplate: local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.gz
+

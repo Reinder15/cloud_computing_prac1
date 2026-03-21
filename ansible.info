@@ -12,3 +12,5 @@ ssh -o BatchMode=yes -i /mnt/pve/cephfs/.ssh/id_ed25519 root@10.24.38.4 "echo ok
 
 ansible all -m ping -u root --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ansible all -m ping -u root
+
+ansible-playbook ansible/plays/nodes_proxmoxer.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
