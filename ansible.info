@@ -15,3 +15,4 @@ ansible all -m ping -u root
 
 ansible-playbook ansible/plays/create_vm_template.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ansible-playbook ansible/plays/create_vm_template.yml --user=ansible --syntax-check --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/create_vm_template.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519

@@ -1,0 +1,122 @@
+---
+- name: Clone golden template and apply per-VM identity
+  hosts: node1
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../secrets
+  vars:
+    proxmox_api_host: node1
+    proxmox_api_user: ansible@pam
+    proxmox_api_token_id: ansible-token
+
+    template_source_node: node1
+    template_vmid: 9000
+    template_name: ubuntu-2404-golden
+
+    storage: ceph-pool
+    gateway: 10.24.38.1
+    ssh_dir: /mnt/pve/cephfs/.ssh
+    ansible_pubkey_path: /mnt/pve/cephfs/.ssh/id_ed25519.pub
+
+    vm_instances:
+      - vmid: 1101
+        name: wp-client-a
+        ip: 10.24.38.111
+        client_user: client-a
+
+      - vmid: 1102
+        name: wp-client-b
+        ip: 10.24.38.112
+        client_user: client-b
+
+  tasks:
+
+    - name: Generate SSH key-pair
+      command: >
+        ssh-keygen -t ed25519 -N ""
+        -f {{ ssh_dir }}/{{ item.name }}_id_ed25519
+        -C {{ item.client_user }}@{{ item.name }}
+      args:
+        creates: "{{ ssh_dir }}/{{ item.name }}_id_ed25519"
+      loop: "{{ vm_instances }}"
+
+    - name: Set private key permissions
+      file:
+        path: "{{ ssh_dir }}/{{ item.name }}_id_ed25519"
+        owner: root
+        group: root
+        mode: "0600"
+      loop: "{{ vm_instances }}"
+
+    - name: Set public key permissions
+      file:
+        path: "{{ ssh_dir }}/{{ item.name }}_id_ed25519.pub"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ vm_instances }}"
+
+    - name: Create user data snippets
+      copy:
+        dest: "/mnt/pve/cephfs/snippets/{{ item.name }}-user-data.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          #cloud-config
+          users:
+            - name: ansible
+              groups: [sudo]
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              ssh_authorized_keys:
+                - "{{ lookup('file', ansible_pubkey_path) }}"
+            - name: "{{ item.client_user }}"
+              groups: [sudo]
+              shell: /bin/bash
+              ssh_authorized_keys:
+                - "{{ lookup('file', ssh_dir ~ '/' ~ item.name ~ '_id_ed25519.pub') }}"
+          ssh_pwauth: false
+          disable_root: true
+      loop: "{{ vm_instances }}"
+
+    - name: Clone VM from golden template
+      proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ api_key }}"
+        node: "{{ template_source_node }}"
+        clone: "{{ template_name }}"
+        vmid: "{{ template_vmid }}"
+        newid: "{{ item.vmid }}"
+        name: "{{ item.name }}"
+        target: node1
+        storage: "{{ storage }}"
+        full: true
+        state: present
+      loop: "{{ vm_instances }}"
+
+    - name: Apply cloud-init
+      command: >
+        qm set {{ item.vmid }}
+        --cicustom user=cephfs:snippets/{{ item.name }}-user-data.yaml
+        --ipconfig0 ip={{ item.ip }}/24,gw={{ gateway }}
+      loop: "{{ vm_instances }}"
+
+    - name: Refresh cloud-init data
+      command: qm cloudinit update {{ item.vmid }}
+      changed_when: false
+      loop: "{{ vm_instances }}"
+
+    - name: Start VM
+      proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ api_key }}"
+        vmid: "{{ item.vmid }}"
+        node: node1
+        state: started
+      loop: "{{ vm_instances }}"
