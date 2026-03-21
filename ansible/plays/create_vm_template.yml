@@ -1,0 +1,62 @@
+- hosts: node1
+  become: false
+  gather_facts: false
+  vars_files:
+    - ../secrets
+    - ../vars/create_vm.yml
+  tasks:
+
+  - name: Create cloud-init user data
+    copy:
+      dest: /mnt/pve/cephfs/snippets/{{ client_user }}user-data.yml
+      mode: "0644"
+      content: |
+        #cloud-config
+        users:
+          - default
+          - name: ansible
+            groups: [sudo]
+            sudo: ALL=(ALL) NOPASSWD:ALL
+            shell: /bin/bash
+            ssh_authorized_keys:
+              - "{{ ansible_pubkey }}"
+          - name: {{ client_user }}
+            groups: [sudo]
+            shell: /bin/bash
+            ssh_authorized_keys:
+              - "{{ client_pubkey }}"
+        ssh_pwauth: false
+        disable_root: true
+  
+  - name: Create new VM
+    proxmox_kvm:
+      api_user: ansible@pam
+      api_token_id: ansible-token
+      api_token_secret: "{{ api_key }}"
+      api_host: node1
+      node: node1
+      vmid: "{{ vmid }}"
+      name: "{{server_name}}"
+      cores: 2
+      memory: 2048
+      disk: 30
+      storage: ceph-pool
+      net: 
+        net0: virtio,bridge=vmbr0
+      state: present
+
+  - name: Attach cloud-init user data to VM
+    command: qm set {{ vmid }} --ide2 ceph-pool:cloudinit
+
+  - name: Attach custom cloud-init user-data
+    ansible.builtin.command: qm set {{ vmid }} --cicustom user=cephfs:snippets/{{ client_user }}user-data.yml --ipconfig0 ip=dhcp
+
+  - name: Refresh cloud-init metadata
+    ansible.builtin.command: qm cloudinit update {{ vmid }}
+
+  - name: Stop VM before templating
+    ansible.builtin.command: qm stop {{ vmid }}
+
+  - name: Convert VM to template
+    ansible.builtin.command: qm template {{ vmid }}
+
