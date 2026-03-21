@@ -1,62 +1,75 @@
 - hosts: node1
   become: false
   gather_facts: false
-  vars_files:
-    - ../secrets
-    - ../vars/create_vm.yml
+  vars:
+    template_vmid: 9000
+    template_name: ubuntu-2404-golden
+    template_storage: ceph-pool
+    image_path: /var/lib/vz/template/qemu/noble-server-cloudimg-amd64.img
+    vendor_snippet_ref: cephfs:snippets/vendor-minimal.yaml
+  
   tasks:
 
-  - name: Create cloud-init user data
+  - name: Destroy old VM if it exists
+    command: qm destroy {{ template_vmid }} --purge 1
+    failed_when: false
+    changed_when: false
+
+  - name: Download cloud image
+    get_url:
+      url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+      dest: "{{ image_path }}"
+      mode: "0644"
+      force: false
+
+  - name: Setup cloud-init vendor
     copy:
-      dest: /mnt/pve/cephfs/snippets/{{ client_user }}user-data.yml
+      dest: /mnt/pve/cephfs/snippets/vendor-minimal.yaml
       mode: "0644"
       content: |
         #cloud-config
-        users:
-          - default
-          - name: ansible
-            groups: [sudo]
-            sudo: ALL=(ALL) NOPASSWD:ALL
-            shell: /bin/bash
-            ssh_authorized_keys:
-              - "{{ ansible_pubkey }}"
-          - name: {{ client_user }}
-            groups: [sudo]
-            shell: /bin/bash
-            ssh_authorized_keys:
-              - "{{ client_pubkey }}"
-        ssh_pwauth: false
-        disable_root: true
+        package_update: true
+        package_upgrade: false
+        packages:
+          - qemu-guest-agent
+        write_files:
+          - path: /etc/ssh/sshd_config.d/99-hardening.conf
+            permissions: "0644"
+            content: |
+              PermitRootLogin no
+              PasswordAuthentication no
+        runcmd:
+          - systemctl enable --now qemu-guest-agent
+          - systemctl restart ssh || systemctl restart sshd
   
-  - name: Create new VM
-    proxmox_kvm:
-      api_user: ansible@pam
-      api_token_id: ansible-token
-      api_token_secret: "{{ api_key }}"
-      api_host: node1
-      node: node1
-      vmid: "{{ vmid }}"
-      name: "{{server_name}}"
-      cores: 2
-      memory: 2048
-      disk: 30
-      storage: ceph-pool
-      net: 
-        net0: virtio,bridge=vmbr0
-      state: present
+  - name: Create VM shell
+    command: >
+      qm create {{ template_vmid }}
+      --name {{ template_name }}
+      --memory 2048
+      --cores 2
+      --net0 virtio,bridge=vmbr0
+      --agent 1
+      --serial0 socket
+      --vga serial0
 
-  - name: Attach cloud-init user data to VM
-    command: qm set {{ vmid }} --ide2 ceph-pool:cloudinit
+  - name: Import image disk
+    command: >
+      qm importdisk {{ template_vmid }} {{ image_path }} {{ template_storage }}
 
-  - name: Attach custom cloud-init user-data
-    ansible.builtin.command: qm set {{ vmid }} --cicustom user=cephfs:snippets/{{ client_user }}user-data.yml --ipconfig0 ip=dhcp
+  - name: Attach disks and cloud-init metadata
+    command: >
+      qm set {{ template_vmid }}
+      --scsihw virtio-scsi-pci
+      --virtio0 {{ template_storage }}:vm-{{ template_vmid }}-disk-0
+      --ide2 {{ template_storage }}:cloudinit
+      --boot order=virtio0
+      --ipconfig0 ip=dhcp
+      --cicustom vendor={{ vendor_snippet_ref }}
 
   - name: Refresh cloud-init metadata
-    ansible.builtin.command: qm cloudinit update {{ vmid }}
+    command: qm cloudinit update {{ template_vmid }}
+    changed_when: false
 
-  - name: Stop VM before templating
-    ansible.builtin.command: qm stop {{ vmid }}
-
-  - name: Convert VM to template
-    ansible.builtin.command: qm template {{ vmid }}
-
+  - name: Convert to template
+    command: qm template {{ template_vmid }}
