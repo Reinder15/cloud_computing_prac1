@@ -83,10 +83,10 @@
 
     - name: Clone VM from golden template
       community.proxmox.proxmox_kvm:
-        api_host: "{{ proxmox_api_host }}"
-        api_user: "{{ proxmox_api_user }}"
-        api_token_id: "{{ proxmox_api_token_id }}"
+        api_user: ansible@pam
+        api_token_id: ansible-token
         api_token_secret: "{{ api_key }}"
+        api_host: 10.24.38.2
         node: "{{ template_source_node }}"
         clone: "{{ template_name }}"
         vmid: "{{ template_vmid }}"
@@ -112,10 +112,10 @@
 
     - name: Start VM
       community.proxmox.proxmox_kvm:
-        api_host: "{{ proxmox_api_host }}"
-        api_user: "{{ proxmox_api_user }}"
-        api_token_id: "{{ proxmox_api_token_id }}"
+        api_user: ansible@pam
+        api_token_id: ansible-token
         api_token_secret: "{{ api_key }}"
+        api_host: 10.24.38.2
         vmid: "{{ item.vmid }}"
         node: node1
         state: started
