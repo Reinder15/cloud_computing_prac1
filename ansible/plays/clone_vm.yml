@@ -1,4 +1,8 @@
 ---
+#
+# ssh ansible@10.24.38.111 -i /mnt/pve/cephfs/.ssh/id_ed25519
+# ssh client-a@10.24.38.111 -i /mnt/pve/cephfs/.ssh/wp-client-a_id_ed25519
+#
 - name: Clone golden template and apply per-VM identity
   hosts: node1
   become: true
@@ -121,4 +125,13 @@
         vmid: "{{ item.vmid }}"
         node: node1
         state: started
+      loop: "{{ vm_instances }}"
+
+    - name: Add to inventory group
+      add_host:
+        name: "{{ item.name }}"
+        groups: vm_wordpress
+        ansible_host: "{{ item.ip }}"
+        ansible_user: ansible
+        ansible_ssh_private_key_file: "{{ ssh_dir }}/{{ item.name }}_id_ed25519"
       loop: "{{ vm_instances }}"

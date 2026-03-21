@@ -1,0 +1,26 @@
+- name: Set firewall for VM's
+  hosts: vm_wordpress
+  become: true
+  tasks:
+
+    - name: Allow SSH traffic
+      ufw:
+        rule: allow
+        port: 22
+        proto: tcp
+
+    - name: Allow HTTP traffic
+      ufw:
+        rule: allow
+        port: 80
+        proto: tcp
+
+    - name: Allow HTTPS traffic
+      ufw:
+        rule: allow
+        port: 443
+        proto: tcp
+
+    - name: Enable UFW firewall
+      ufw:
+        state: enabled
