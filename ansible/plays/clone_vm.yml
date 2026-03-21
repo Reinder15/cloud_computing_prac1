@@ -127,11 +127,10 @@
         state: started
       loop: "{{ vm_instances }}"
 
-    - name: Add to inventory group
-      add_host:
-        name: "{{ item.name }}"
-        groups: vm_wordpress
-        ansible_host: "{{ item.ip }}"
-        ansible_user: ansible
-        ansible_ssh_private_key_file: "{{ ssh_dir }}/{{ item.name }}_id_ed25519"
+    - name: Persist VM entries
+      ansible.builtin.lineinfile:
+        path: "{{ inventory_target }}"
+        insertafter: '^\[vm_wordpress\]$'
+        line: "{{ item.name }} ansible_host={{ item.ip }} ansible_user={{ item.client_user }} ansible_ssh_private_key_file={{ ssh_dir }}/{{ item.name }}_id_ed25519"
+        state: present
       loop: "{{ vm_instances }}"
