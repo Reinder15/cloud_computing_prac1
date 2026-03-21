@@ -25,6 +25,9 @@ node3
 # Komt later
 
 [vm_wordpress]
+wp-vm-1003 ansible_host=10.24.38.102 ansible_user=ubuntu-1003 ansible_ssh_private_key_file=/mnt/pve/cephfs/.ssh/wp-vm-1003_1003_id_ed25519
+wp-vm-1002 ansible_host=10.24.38.101 ansible_user=ubuntu-1002 ansible_ssh_private_key_file=/mnt/pve/cephfs/.ssh/wp-vm-1002_1002_id_ed25519
+wp-vm-1001 ansible_host=10.24.38.100 ansible_user=ubuntu-1001 ansible_ssh_private_key_file=/mnt/pve/cephfs/.ssh/wp-vm-1001_1001_id_ed25519
 # Komt later
 
 [all:vars]
