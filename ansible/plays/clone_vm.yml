@@ -87,6 +87,7 @@
         api_token_id: ansible-token
         api_token_secret: "{{ api_key }}"
         api_host: 10.24.38.2
+        validate_certs: false
         node: "{{ template_source_node }}"
         clone: "{{ template_name }}"
         vmid: "{{ template_vmid }}"
@@ -116,6 +117,7 @@
         api_token_id: ansible-token
         api_token_secret: "{{ api_key }}"
         api_host: 10.24.38.2
+        validate_certs: false
         vmid: "{{ item.vmid }}"
         node: node1
         state: started
