@@ -8,24 +8,8 @@
     proxmox_api_host: 10.24.38.2
     proxmox_api_user: ansible@pam
     proxmox_api_token_id: ansible-token
-    vm_destroy_list: "{{ groups['vm_wordpress'] | default([]) }}"
 
   tasks:
-    - name: Fail when vm_wordpress is empty
-      ansible.builtin.assert:
-        that:
-          - vm_destroy_list | length > 0
-        fail_msg: vm_wordpress is empty, nothing to destroy.
-
-    - name: Require explicit confirmation
-      ansible.builtin.assert:
-        that:
-          - confirm_destroy | default(false) | bool
-        fail_msg: Refusing to destroy VMs. Re-run with -e confirm_destroy=true
-
-    - name: Show destroy list
-      ansible.builtin.debug:
-        var: vm_destroy_list
 
     - name: Destroy VM by name
       community.proxmox.proxmox_kvm:
