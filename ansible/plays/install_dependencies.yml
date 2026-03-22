@@ -27,7 +27,7 @@
       git:
         repo: 'https://github.com/prometheus-pve/prometheus-pve-exporter.git'
         dest: /opt/prometheus-pve-exporter
-        version: master
+        version: main
         force: yes
 
     - name: Set up Python venv for exporter
