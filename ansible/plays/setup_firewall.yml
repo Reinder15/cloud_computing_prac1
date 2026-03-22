@@ -1,5 +1,5 @@
 - name: Set firewall for VM's
-  hosts: vm_wordpress
+  hosts: 'vm_wordpress:lxc_wordpress'
   become: true
   tasks:
 
