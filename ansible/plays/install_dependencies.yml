@@ -1,0 +1,75 @@
+- hosts: prox_nodes
+  become: true
+  tasks:
+
+    - name: Update repository cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    
+    - name: install proxmoxer
+      apt:
+        name: python3-proxmoxer
+        state: latest
+
+    - name: Install dependencies for prometheus-pve-exporter
+      apt:
+        name:
+          - python3-pip
+          - git
+          - python3-venv
+        state: present
+        update_cache: yes
+
+    - name: Clone prometheus-pve-exporter repo
+      git:
+        repo: 'https://github.com/prometheus-pve/prometheus-pve-exporter.git'
+        dest: /opt/prometheus-pve-exporter
+        version: master
+        force: yes
+
+    - name: Set up Python venv for exporter
+      command: python3 -m venv /opt/prometheus-pve-exporter/venv
+      args:
+        creates: /opt/prometheus-pve-exporter/venv/bin/activate
+
+    - name: Install exporter requirements
+      pip:
+        requirements: /opt/prometheus-pve-exporter/requirements.txt
+        virtualenv: /opt/prometheus-pve-exporter/venv
+
+    - name: Create systemd service for prometheus-pve-exporter
+      copy:
+        dest: /etc/systemd/system/prometheus-pve-exporter.service
+        content: |
+          [Unit]
+          Description=Prometheus PVE Exporter
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=root
+          WorkingDirectory=/opt/prometheus-pve-exporter
+          ExecStart=/opt/prometheus-pve-exporter/venv/bin/python3 /opt/prometheus-pve-exporter/pve_exporter.py --pve_user=root@pam --pve_password=YOUR_PVE_PASSWORD --pve_verify_ssl=False --port=9221
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+      mode: '0644'
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start prometheus-pve-exporter
+      systemd:
+        name: prometheus-pve-exporter
+        enabled: yes
+        state: started
+
+    - name: Ensure port 9221 is open in firewall
+      ufw:
+        rule: allow
+        port: 9221
+        proto: tcp
+      when: ansible_facts['os_family'] == 'Debian'

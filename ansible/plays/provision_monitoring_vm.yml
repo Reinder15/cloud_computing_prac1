@@ -1,0 +1,201 @@
+- name: Provision monitoring VM from golden template
+  hosts: node1
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../secrets
+  vars:
+    monitoring_vmid: 1200
+    monitoring_name: monitoring
+    monitoring_ip: 10.24.38.120
+    client_user: monitoring
+    template_source_node: node1
+    template_vmid: 9000
+    template_name: ubuntu-2404-golden
+    storage: ceph-pool
+    gateway: 10.24.38.1
+    ssh_dir: /mnt/pve/cephfs/.ssh
+    ansible_pubkey_path: /mnt/pve/cephfs/.ssh/id_ed25519.pub
+
+  tasks:
+    - name: Generate SSH key-pair for monitoring VM
+      command: >
+        ssh-keygen -t ed25519 -N "" -f {{ ssh_dir }}/{{ monitoring_name }}_id_ed25519 -C {{ client_user }}@{{ monitoring_name }}
+      args:
+        creates: "{{ ssh_dir }}/{{ monitoring_name }}_id_ed25519"
+
+    - name: Set private key permissions
+      file:
+        path: "{{ ssh_dir }}/{{ monitoring_name }}_id_ed25519"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Set public key permissions
+      file:
+        path: "{{ ssh_dir }}/{{ monitoring_name }}_id_ed25519.pub"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Create user data snippet for monitoring VM
+      copy:
+        dest: "/mnt/pve/cephfs/snippets/{{ monitoring_name }}-user-data.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          #cloud-config
+          users:
+            - name: ansible
+              groups: [sudo]
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              ssh_authorized_keys:
+                - "{{ lookup('file', ansible_pubkey_path) }}"
+            - name: {{ client_user }}
+              groups: [sudo]
+              shell: /bin/bash
+              ssh_authorized_keys:
+                - "{{ lookup('file', ssh_dir ~ '/' ~ monitoring_name ~ '_id_ed25519.pub') }}"
+          ssh_pwauth: false
+          disable_root: true
+
+    - name: Clone monitoring VM from golden template
+      community.proxmox.proxmox_kvm:
+        api_user: ansible@pam
+        api_token_id: ansible-token
+        api_token_secret: "{{ api_key }}"
+        api_host: 10.24.38.2
+        validate_certs: false
+        node: "{{ template_source_node }}"
+        clone: "{{ template_name }}"
+        vmid: "{{ template_vmid }}"
+        newid: "{{ monitoring_vmid }}"
+        name: "{{ monitoring_name }}"
+        target: node1
+        storage: "{{ storage }}"
+        full: true
+        state: present
+
+    - name: Apply cloud-init to monitoring VM
+      command: >
+        qm set {{ monitoring_vmid }} \
+        --cicustom user=cephfs:snippets/{{ monitoring_name }}-user-data.yaml \
+        --ipconfig0 ip={{ monitoring_ip }}/24,gw={{ gateway }} \
+        --nameserver 8.8.8.8 \
+        --net0 virtio,bridge=vmbr0,rate=50
+
+    - name: Refresh cloud-init data
+      command: qm cloudinit update {{ monitoring_vmid }}
+      changed_when: false
+
+    - name: Start monitoring VM
+      community.proxmox.proxmox_kvm:
+        api_user: ansible@pam
+        api_token_id: ansible-token
+        api_token_secret: "{{ api_key }}"
+        api_host: 10.24.38.2
+        validate_certs: false
+        vmid: "{{ monitoring_vmid }}"
+        node: node1
+        state: started
+
+    - name: Add monitoring VM to inventory
+      lineinfile:
+        path: /etc/ansible/hosts
+        insertafter: '^\[monitoring\]$'
+        line: "monitoring ansible_host={{ monitoring_ip }} ansible_user=ansible ansible_ssh_private_key_file={{ ssh_dir }}/id_ed25519"
+        state: present
+
+    - name: Wait for SSH port on monitoring VM
+      wait_for:
+        host: "{{ monitoring_ip }}"
+        port: 22
+        timeout: 180
+        sleep: 3
+      become: false
+
+    - name: Remove stale host key
+      command: "ssh-keygen -R {{ monitoring_ip }}"
+      delegate_to: localhost
+      become: false
+      failed_when: false
+      changed_when: false
+
+    - name: Add monitoring VM host key to known_hosts
+      known_hosts:
+        path: /mnt/pve/cephfs/.ssh/known_hosts
+        name: "{{ monitoring_ip }}"
+        key: "{{ lookup('pipe', 'ssh-keyscan -H ' ~ monitoring_ip ~ ' 2>/dev/null') }}"
+        state: present
+      delegate_to: localhost
+      become: false
+
+- name: Install Prometheus and Grafana on monitoring VM
+  hosts: monitoring
+  become: true
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        update_cache: true
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create Prometheus and Grafana Docker Compose file
+      copy:
+        dest: /home/ansible/monitoring-docker-compose.yml
+        owner: ansible
+        group: ansible
+        mode: '0644'
+        content: |
+          version: '3'
+          services:
+            prometheus:
+              image: prom/prometheus:latest
+              container_name: prometheus
+              volumes:
+                - /home/ansible/prometheus.yml:/etc/prometheus/prometheus.yml
+              ports:
+                - "9090:9090"
+            grafana:
+              image: grafana/grafana:latest
+              container_name: grafana
+              ports:
+                - "3000:3000"
+
+    - name: Create Prometheus config file
+      copy:
+        dest: /home/ansible/prometheus.yml
+        owner: ansible
+        group: ansible
+        mode: '0644'
+        content: |
+          global:
+            scrape_interval: 15s
+          scrape_configs:
+            - job_name: 'proxmox-nodes'
+              static_configs:
+                - targets: ['10.24.38.2:9221', '10.24.38.3:9221', '10.24.38.4:9221']
+            # Add more jobs for node_exporter or guest exporters as needed
+
+    - name: Start Prometheus and Grafana containers
+      shell: docker-compose -f /home/ansible/monitoring-docker-compose.yml up -d
+      args:
+        chdir: /home/ansible
+
+    - name: Print Grafana access info
+      debug:
+        msg: |
+          Grafana is running on http://{{ inventory_hostname }}:3000 (default login: admin/admin)
+          Prometheus is running on http://{{ inventory_hostname }}:9090
+
+
