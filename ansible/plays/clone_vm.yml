@@ -136,6 +136,17 @@
         state: present
       loop: "{{ vm_instances }}"
 
+    - name: Wait for SSH port on VMs
+      ansible.builtin.wait_for:
+        host: "{{ item.ip }}"
+        port: 22
+        timeout: 180
+        sleep: 3
+      loop: "{{ vm_instances }}"
+      loop_control:
+        label: "{{ item.name }}"
+      become: false
+
     - name: Remove stale host key
       command: "ssh-keygen -R {{ item.ip }}"
       loop: "{{ vm_instances }}"
@@ -153,4 +164,3 @@
       loop: "{{ vm_instances }}"
       delegate_to: localhost
       become: false
-    
