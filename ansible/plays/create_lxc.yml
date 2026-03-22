@@ -44,6 +44,24 @@
       args:
         creates: "{{ template_cache_path }}/{{ template_file }}"
 
+    - name: Generate client SSH keys for each container
+      command:
+        argv:
+          - ssh-keygen
+          - -t
+          - ed25519
+          - -f
+          - "{{ item.client_pubkey_path[:-4] }}"
+          - -N
+          - ""
+          - -C
+          - "{{ item.client_user }}@{{ item.hostname }}"
+      args:
+        creates: "{{ item.client_pubkey_path }}"
+      loop: "{{ containers }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+
     - name: Check if container already exists
       command: "pct config {{ item.ctid }}"
       register: lxc_config_check

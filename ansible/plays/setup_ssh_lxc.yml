@@ -62,3 +62,12 @@
         user: "{{ client_user }}"
         key: "{{ lookup('ansible.builtin.file', client_pubkey_file) | trim }}"
         state: present
+
+    - name: Update inventory to use ansible user for future playbooks
+      ansible.builtin.lineinfile:
+        path: /etc/ansible/hosts
+        regexp: '^{{ inventory_hostname }}\s+'
+        line: "{{ inventory_hostname }} ansible_host={{ ansible_host }} ansible_user=ansible ansible_ssh_private_key_file=/mnt/pve/cephfs/.ssh/id_ed25519 lxc_ctid={{ lxc_ctid }} client_user={{ client_user }} client_pubkey_file={{ client_pubkey_file }}"
+        state: present
+      delegate_to: localhost
+      become: false
