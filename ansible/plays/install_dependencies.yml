@@ -36,10 +36,9 @@
         creates: /opt/prometheus-pve-exporter/venv/bin/activate
 
     - name: Install prometheus-pve-exporter in venv
-      command: python3 -m pip install prometheus-pve-exporter
-      args:
-        chdir: /opt/prometheus-pve-exporter
-        creates: /opt/prometheus-pve-exporter/venv/lib/python*/site-packages/pve_exporter
+      pip:
+        name: prometheus-pve-exporter
+        virtualenv: /opt/prometheus-pve-exporter/venv
 
     - name: Install exporter requirements
       pip:
