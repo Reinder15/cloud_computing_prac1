@@ -131,6 +131,6 @@
       lineinfile:
         path: /etc/ansible/hosts
         insertafter: '^\[vm_wordpress\]$'
-        line: "{{ item.name }} ansible_host={{ item.ip }} ansible_user={{ item.client_user }} ansible_ssh_private_key_file={{ ssh_dir }}/{{ item.name }}_id_ed25519"
+        line: "{{ item.name }} ansible_host={{ item.ip }} ansible_user=ansible ansible_ssh_private_key_file={{ ssh_dir }}/id_ed25519"
         state: present
       loop: "{{ vm_instances }}"
