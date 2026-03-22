@@ -1,5 +1,7 @@
 - hosts: prox_nodes
   become: true
+  vars_files:
+    - ../secrets
   tasks:
 
     - name: Update repository cache
@@ -50,7 +52,7 @@
           Type=simple
           User=root
           WorkingDirectory=/opt/prometheus-pve-exporter
-          ExecStart=/opt/prometheus-pve-exporter/venv/bin/python3 /opt/prometheus-pve-exporter/pve_exporter.py --pve_user=root@pam --pve_password=YOUR_PVE_PASSWORD --pve_verify_ssl=False --port=9221
+          ExecStart=/opt/prometheus-pve-exporter/venv/bin/python3 /opt/prometheus-pve-exporter/pve_exporter.py --pve_user=root@pam --pve_password="{{ pve_password }}" --pve_verify_ssl=False --port=9221
           Restart=always
 
           [Install]
