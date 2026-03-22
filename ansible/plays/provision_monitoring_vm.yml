@@ -195,7 +195,7 @@
     - name: Print Grafana access info
       debug:
         msg: |
-          Grafana is running on http://{{ inventory_hostname }}:3000 (default login: admin/admin)
-          Prometheus is running on http://{{ inventory_hostname }}:9090
+          Grafana is running on http://{{ monitoring_ip }}:3000 (default login: admin/admin)
+          Prometheus is running on http://{{ monitoring_ip }}:9090
 
 

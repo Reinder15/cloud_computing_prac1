@@ -40,7 +40,20 @@
         requirements: /opt/prometheus-pve-exporter/requirements.txt
         virtualenv: /opt/prometheus-pve-exporter/venv
 
-    - name: Create systemd service for prometheus-pve-exporter
+
+    - name: Create pve.yml config for exporter (token-based)
+      copy:
+        dest: /opt/prometheus-pve-exporter/pve.yml
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          default:
+            user: prometheus@pve
+            token_name: prompve-scraper
+            token_value: "{{ api_key_prom }}"
+
+    - name: Create systemd service for prometheus-pve-exporter (module-based)
       copy:
         dest: /etc/systemd/system/prometheus-pve-exporter.service
         content: |
@@ -52,7 +65,7 @@
           Type=simple
           User=root
           WorkingDirectory=/opt/prometheus-pve-exporter
-          ExecStart=/opt/prometheus-pve-exporter/venv/bin/python3 /opt/prometheus-pve-exporter/pve_exporter.py --pve_user=root@pam --pve_password="{{ pve_password }}" --pve_verify_ssl=False --port=9221
+          ExecStart=/opt/prometheus-pve-exporter/venv/bin/python3 -m pve_exporter --config.file=/opt/prometheus-pve-exporter/pve.yml --web.listen-address=0.0.0.0:9221
           Restart=always
 
           [Install]
