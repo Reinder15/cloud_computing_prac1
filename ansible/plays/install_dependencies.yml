@@ -68,10 +68,3 @@
         name: prometheus-pve-exporter
         enabled: yes
         state: started
-
-    - name: Ensure port 9221 is open in firewall
-      ufw:
-        rule: allow
-        port: 9221
-        proto: tcp
-      when: ansible_facts['os_family'] == 'Debian'
