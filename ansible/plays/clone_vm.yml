@@ -108,6 +108,7 @@
         qm set {{ item.vmid }}
         --cicustom user=cephfs:snippets/{{ item.name }}-user-data.yaml
         --ipconfig0 ip={{ item.ip }}/24,gw={{ gateway }}
+        --nameserver 8.8.8.8
       loop: "{{ vm_instances }}"
 
     - name: Refresh cloud-init data
