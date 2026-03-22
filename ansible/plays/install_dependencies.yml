@@ -64,7 +64,7 @@
           [Service]
           Type=simple
           User=root
-          WorkingDirectory=/opt/prometheus-pve-exporter
+          WorkingDirectory=/opt/prometheus-pve-exporter/src
           ExecStart=/opt/prometheus-pve-exporter/venv/bin/python3 -m pve_exporter --config.file=/opt/prometheus-pve-exporter/pve.yml --web.listen-address=0.0.0.0:9221
           Restart=always
 
