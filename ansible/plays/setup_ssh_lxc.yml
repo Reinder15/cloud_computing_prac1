@@ -1,0 +1,64 @@
+- name: Configure ansible user + client user on LXCs
+  hosts: lxc_wordpress
+  become: true
+  gather_facts: false
+
+  vars:
+    ansible_admin_user: ansible
+    ansible_admin_pubkey_file: /mnt/pve/cephfs/.ssh/id_ed25519.pub
+
+  tasks:
+    - name: Require per-host client vars
+      ansible.builtin.assert:
+        that:
+          - client_user is defined
+          - client_pubkey_file is defined
+        fail_msg: Set client_user and client_pubkey_file for each LXC host.
+
+    - name: Ensure OpenSSH is installed
+      ansible.builtin.apt:
+        name: openssh-server
+        state: present
+        update_cache: true
+
+    - name: Ensure SSH service is running
+      ansible.builtin.systemd:
+        name: ssh
+        enabled: true
+        state: started
+
+    - name: Ensure ansible automation user exists
+      ansible.builtin.user:
+        name: "{{ ansible_admin_user }}"
+        shell: /bin/bash
+        groups: sudo
+        append: true
+        create_home: true
+        state: present
+
+    - name: Add ansible automation public key
+      ansible.posix.authorized_key:
+        user: "{{ ansible_admin_user }}"
+        key: "{{ lookup('ansible.builtin.file', ansible_admin_pubkey_file) | trim }}"
+        state: present
+
+    - name: Allow passwordless sudo for ansible user
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/90-ansible
+        content: "ansible ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+
+    - name: Ensure client user exists
+      ansible.builtin.user:
+        name: "{{ client_user }}"
+        shell: /bin/bash
+        create_home: true
+        state: present
+
+    - name: Add client user public key
+      ansible.posix.authorized_key:
+        user: "{{ client_user }}"
+        key: "{{ lookup('ansible.builtin.file', client_pubkey_file) | trim }}"
+        state: present
