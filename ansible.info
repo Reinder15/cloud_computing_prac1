@@ -29,6 +29,8 @@ ansible-playbook ansible/plays/setup_ssh_lxc.yml
 
 ansible-playbook ansible/plays/add_wordpress.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
+ansible-playbook ansible/plays/install_dependencies.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+
 
 ansible-vault edit ansible/secrets
 
