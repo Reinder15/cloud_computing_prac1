@@ -35,6 +35,12 @@
       args:
         creates: /opt/prometheus-pve-exporter/venv/bin/activate
 
+    - name: Install prometheus-pve-exporter in venv
+      command: python3 -m pip install prometheus-pve-exporter
+      args:
+        chdir: /opt/prometheus-pve-exporter
+        creates: /opt/prometheus-pve-exporter/venv/lib/python*/site-packages/pve_exporter
+
     - name: Install exporter requirements
       pip:
         requirements: /opt/prometheus-pve-exporter/requirements.txt
@@ -50,7 +56,7 @@
         content: |
           default:
             user: ansible@pam
-            token_name: prompve-scraper
+            token_name: "prompve-scraper"
             token_value: "{{ api_key_prom }}"
 
     - name: Create systemd service for prometheus-pve-exporter (module-based)

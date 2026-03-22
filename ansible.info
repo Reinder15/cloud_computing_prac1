@@ -36,6 +36,12 @@ ansible-playbook ansible/plays/provision_monitoring_vm.yml --user=ansible --ask-
 ssh ansible@10.24.38.3 -i /mnt/pve/cephfs/.ssh/id_ed25519
 ansible-vault edit ansible/secrets
 
+
+curl -k -H 'Authorization: PVEAPIToken=ansible@pam!prompve-scraper=6d50265f-75dc-42fb-9476-161d5bb7884e' https://10.24.38.2:8006/api2/json/nodes
+
+/opt/prometheus-pve-exporter/pve.yml
+
+
 TOKEN_SECRET='047f2c53-a7b5-42cf-a0a2-dbc63b9e8c81'
 ./test-proxmox-api.sh '047f2c53-a7b5-42cf-a0a2-dbc63b9e8c81'
 
