@@ -11,8 +11,7 @@
     vm_destroy_list: 
       - wp-client-a
       - wp-client-b
-      - wp-client-c
-      
+
   tasks:
 
     - name: Destroy VM by name

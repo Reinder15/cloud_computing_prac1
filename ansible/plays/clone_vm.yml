@@ -127,11 +127,10 @@
         state: started
       loop: "{{ vm_instances }}"
     
-    - name: Persist or update VM entries
+    - name: Add VM entries under vm_wordpress
       ansible.builtin.lineinfile:
         path: /etc/ansible/hosts
-        regexp: "^{{ item.name }}\\s"
-        insertafter: '^\\[vm_wordpress\\]$'
+        insertafter: '^\[vm_wordpress\]$'
         line: "{{ item.name }} ansible_host={{ item.ip }} ansible_user=ansible ansible_ssh_private_key_file={{ ssh_dir }}/id_ed25519"
         state: present
       loop: "{{ vm_instances }}"
