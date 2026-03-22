@@ -23,6 +23,9 @@ ansible-playbook ansible/plays/setup_firewall.yml --user=ansible --private-key /
 
 ansible-playbook ansible/plays/DESTROY_VM.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
+ansible-playbook ansible/plays/create_lxc.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+
+
 ansible-vault view ansible/secrets
 
 TOKEN_SECRET='047f2c53-a7b5-42cf-a0a2-dbc63b9e8c81'

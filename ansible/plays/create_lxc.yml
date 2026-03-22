@@ -6,7 +6,7 @@
 
   vars:
     template_storage: local
-    template_file: ubuntu-24.04-standard_24.04-1_amd64.tar.zst
+    template_file: ubuntu-22.04-standard_22.04-1_amd64.tar.zst
     template_cache_path: /var/lib/vz/template/cache
     lxc_storage: ceph-pool
     gateway: 10.24.38.1
