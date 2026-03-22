@@ -104,7 +104,7 @@
     - name: Add monitoring VM to inventory
       lineinfile:
         path: /etc/ansible/hosts
-        insertafter: '^\[monitoring\]$'
+        insertafter: '^\[monitor_server\]$'
         line: "monitoring ansible_host={{ monitoring_ip }} ansible_user=ansible ansible_ssh_private_key_file={{ ssh_dir }}/id_ed25519"
         state: present
 
