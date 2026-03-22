@@ -33,7 +33,7 @@ ansible-playbook ansible/plays/install_dependencies.yml --user=ansible --ask-vau
 
 ansible-playbook ansible/plays/provision_monitoring_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
-
+ssh ansible@10.24.38.3 -i /mnt/pve/cephfs/.ssh/id_ed25519
 ansible-vault edit ansible/secrets
 
 TOKEN_SECRET='047f2c53-a7b5-42cf-a0a2-dbc63b9e8c81'

@@ -49,7 +49,7 @@
         mode: '0600'
         content: |
           default:
-            user: prometheus@pve
+            user: ansible@pam
             token_name: prompve-scraper
             token_value: "{{ api_key_prom }}"
 
