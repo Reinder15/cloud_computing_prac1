@@ -1,0 +1,31 @@
+- name: Cleanup and destroy all LXC containers
+  hosts: node1,node2,node3
+  become: true
+  gather_facts: false
+  tasks:
+    - name: List all LXC containers on node
+      shell: pct list | awk 'NR>1 {print $1}'
+      register: lxc_list
+      changed_when: false
+      failed_when: false
+
+    - name: Stop all LXC containers on node
+      shell: pct stop {{ item }}
+      loop: "{{ lxc_list.stdout_lines }}"
+      ignore_errors: true
+      when: lxc_list.stdout_lines is defined and lxc_list.stdout_lines | length > 0
+
+    - name: Destroy all LXC containers on node
+      shell: pct destroy {{ item }} --purge
+      loop: "{{ lxc_list.stdout_lines }}"
+      ignore_errors: true
+      when: lxc_list.stdout_lines is defined and lxc_list.stdout_lines | length > 0
+
+    - name: Remove LXC entries from inventory
+      lineinfile:
+        path: /etc/ansible/hosts
+        regexp: '^lxc-'
+        state: absent
+      delegate_to: localhost
+      become: false
+      ignore_errors: true

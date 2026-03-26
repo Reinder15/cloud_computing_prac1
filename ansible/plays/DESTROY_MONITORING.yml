@@ -1,0 +1,25 @@
+- name: Cleanup and destroy monitoring VM
+  hosts: node1
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../secrets
+  vars:
+    monitoring_vmid: 1200
+  tasks:
+    - name: Stop monitoring VM if running
+      shell: qm stop {{ monitoring_vmid }}
+      ignore_errors: true
+
+    - name: Destroy monitoring VM
+      shell: qm destroy {{ monitoring_vmid }} --purge
+      ignore_errors: true
+
+    - name: Remove monitoring VM from inventory
+      lineinfile:
+        path: /etc/ansible/hosts
+        regexp: '^monitoring '
+        state: absent
+      delegate_to: localhost
+      become: false
+      ignore_errors: true
