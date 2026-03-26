@@ -9,6 +9,11 @@
         update_cache: yes
         cache_valid_time: 3600
     
+    - name: Upgrade all packages to the latest version
+      apt:
+      upgrade: dist
+      update_cache: yes
+    
     - name: install proxmoxer
       apt:
         name: python3-proxmoxer
