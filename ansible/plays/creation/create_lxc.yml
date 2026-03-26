@@ -134,7 +134,7 @@
       lineinfile:
         path: "{{ lxc_inventory_path }}"
         insertafter: '^\[lxc_wordpress\]$'
-        line: '{{ item.hostname }} ansible_host={{ item.ip }} ansible_user=root ansible_ssh_private_key_file={{ ansible_private_key_path }} lxc_ctid={{ item.ctid }} client_user={{ item.client_user }} client_pubkey_file={{ ssh_dir }}/{{ item.client_user }}_id_ed25519.pub'
+        line: '{{ item.hostname }} ansible_host={{ item.ip }} ansible_user=ansible ansible_ssh_private_key_file={{ ansible_private_key_path }} lxc_ctid={{ item.ctid }} client_user={{ item.client_user }} client_pubkey_file={{ ssh_dir }}/{{ item.client_user }}_id_ed25519.pub'
         state: present
       loop: "{{ containers }}"
       loop_control:
