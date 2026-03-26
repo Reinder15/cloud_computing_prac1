@@ -20,6 +20,7 @@ lxc_inventory_path: /etc/ansible/hosts
 lxc_public_keys_path: "{{ ssh_dir }}/authorized_keys"
 lxc_memory: 1024
 lxc_cores: 1
+lxc_storage_size: 30
 
 # VM defaults
 template_vmid: 9000
