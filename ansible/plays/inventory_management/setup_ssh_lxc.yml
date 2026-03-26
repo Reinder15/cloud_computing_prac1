@@ -3,9 +3,8 @@
   become: true
   gather_facts: false
 
-  vars:
-    ansible_admin_user: ansible
-    ansible_admin_pubkey_file: /mnt/pve/cephfs/.ssh/id_ed25519.pub
+  vars_files:
+    - ../../vars/main.yml
 
   tasks:
     - name: Require per-host client vars
@@ -29,7 +28,7 @@
 
     - name: Ensure ansible automation user exists
       ansible.builtin.user:
-        name: "{{ ansible_admin_user }}"
+        name: "{{ ansible_user }}"
         shell: /bin/bash
         groups: sudo
         append: true
@@ -38,8 +37,8 @@
 
     - name: Add ansible automation public key
       ansible.posix.authorized_key:
-        user: "{{ ansible_admin_user }}"
-        key: "{{ lookup('ansible.builtin.file', ansible_admin_pubkey_file) | trim }}"
+        user: "{{ ansible_user }}"
+        key: "{{ lookup('ansible.builtin.file', ansible_pubkey_path) | trim }}"
         state: present
 
     - name: Allow passwordless sudo for ansible user

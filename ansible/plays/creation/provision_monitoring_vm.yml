@@ -3,7 +3,7 @@
   become: true
   gather_facts: false
   vars_files:
-    - ../secrets
+    - ../../secrets
   vars:
     monitoring_vmid: 1200
     monitoring_name: monitoring

@@ -8,37 +8,8 @@
   become: true
   gather_facts: false
   vars_files:
-    - ../secrets
-  vars:
-    proxmox_api_host: node1
-    proxmox_api_user: ansible@pam
-    proxmox_api_token_id: ansible-token
-
-    template_source_node: node1
-    template_vmid: 9000
-    template_name: ubuntu-2404-golden
-
-    storage: ceph-pool
-    gateway: 10.24.38.1
-    vm_net_rate_mb: 50
-    ssh_dir: /mnt/pve/cephfs/.ssh
-    ansible_pubkey_path: /mnt/pve/cephfs/.ssh/id_ed25519.pub
-
-    ha_rule_name: wordpress-ha
-    ha_nodes: node1,node2,node3
-    ha_rule_strict: false
-    ha_failback: false
-
-    vm_instances:
-      - vmid: 1101
-        name: wp-client-a
-        ip: 10.24.38.111
-        client_user: client-a
-
-      - vmid: 1102
-        name: wp-client-b
-        ip: 10.24.38.112
-        client_user: client-b
+    - ../../secrets
+    - ../../vars/main.yml
 
   tasks:
 
@@ -114,7 +85,7 @@
         qm set {{ item.vmid }}
         --cicustom user=cephfs:snippets/{{ item.name }}-user-data.yaml
         --ipconfig0 ip={{ item.ip }}/24,gw={{ gateway }}
-        --nameserver 8.8.8.8
+        --nameserver "{{ nameserver }}"
         --net0 virtio,bridge=vmbr0,rate={{ vm_net_rate_mb }}
       loop: "{{ vm_instances }}"
 

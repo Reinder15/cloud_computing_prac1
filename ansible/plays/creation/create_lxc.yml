@@ -3,33 +3,10 @@
   hosts: node1
   become: true
   gather_facts: false
-
-  vars:
-    template_storage: local
-    template_file: ubuntu-22.04-standard_22.04-1_amd64.tar.zst
-    template_cache_path: /var/lib/vz/template/cache
-    lxc_storage: ceph-pool
-    gateway: 10.24.38.1
-    nameserver: 8.8.8.8
-    net_rate_mb: 50
-    ssh_public_keys_path: /mnt/pve/cephfs/.ssh/authorized_keys
-    ansible_private_key_path: /mnt/pve/cephfs/.ssh/id_ed25519
-    ansible_pubkey_path: /mnt/pve/cephfs/.ssh/id_ed25519.pub
-    lxc_inventory_path: /etc/ansible/hosts
-
-    containers:
-      - ctid: 201
-        hostname: wordpress-lxc-201
-        ip: 10.24.38.201
-        client_user: client-a
-        client_pubkey_path: /mnt/pve/cephfs/.ssh/client-201_id_ed25519.pub
-
-      - ctid: 202
-        hostname: wordpress-lxc-202
-        ip: 10.24.38.202
-        client_user: client-b
-        client_pubkey_path: /mnt/pve/cephfs/.ssh/client-202_id_ed25519.pub
-
+  
+  vars_files:
+    - ../../vars/main.yml
+    
   tasks:
     - name: Refresh template index
       command: pveam update
@@ -40,9 +17,9 @@
           - pveam
           - download
           - "{{ template_storage }}"
-          - "{{ template_file }}"
+          - "{{ lxc_template_file }}"
       args:
-        creates: "{{ template_cache_path }}/{{ template_file }}"
+        creates: "{{ template_cache_path }}/{{ lxc_template_file }}"
 
     - name: Generate client SSH keys for each container
       command:
@@ -77,17 +54,17 @@
           - pct
           - create
           - "{{ item.item.ctid | string }}"
-          - "{{ template_storage }}:vztmpl/{{ template_file }}"
+          - "{{ template_storage }}:vztmpl/{{ lxc_template_file }}"
           - --hostname
           - "{{ item.item.hostname }}"
           - --memory
-          - "1024"
+          - "{{ lxc_memory }}"
           - --cores
-          - "1"
+          - "{{ lxc_cores }}"
           - --storage
-          - "{{ lxc_storage }}"
+          - "{{ storage }}:{{ lxc_storage_size }}"
           - --net0
-          - "name=eth0,bridge=vmbr0,ip={{ item.item.ip }}/24,gw={{ gateway }},rate={{ net_rate_mb }}"
+          - "name=eth0,bridge=vmbr0,ip={{ item.item.ip }}/24,gw={{ gateway }},rate={{ lxc_net_rate_mb }}"
           - --nameserver
           - "{{ nameserver }}"
           - --onboot

@@ -1,7 +1,7 @@
 - hosts: prox_nodes
   become: true
   vars_files:
-    - ../secrets
+    - ../../secrets
   tasks:
 
     - name: Update repository cache

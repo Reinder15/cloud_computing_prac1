@@ -4,15 +4,8 @@
   become: true
   gather_facts: false
 
-  vars:
-    wordpress_db_name: wordpress_db
-    wordpress_db_user: wpuser
-    wordpress_db_password: wpuser
-    wordpress_download_url: https://wordpress.org/latest.tar.gz
-    wordpress_archive_path: /tmp/latest.tar.gz
-    wordpress_extract_path: /tmp
-    wordpress_source_path: /tmp/wordpress
-    wordpress_web_root: /var/www/html
+  vars_files:
+    - ../../vars/main.yml
 
   tasks:
     - name: Ensure apt dependencies for WordPress are installed

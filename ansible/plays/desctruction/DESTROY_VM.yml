@@ -3,14 +3,8 @@
   hosts: node1
   gather_facts: false
   vars_files:
-    - ../secrets
-  vars:
-    proxmox_api_host: 10.24.38.2
-    proxmox_api_user: ansible@pam
-    proxmox_api_token_id: ansible-token
-    vm_destroy_list: 
-      - wp-client-a
-      - wp-client-b
+    - ../../secrets
+    - ../../vars/main.yml
 
   tasks:
 
