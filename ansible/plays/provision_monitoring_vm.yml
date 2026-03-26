@@ -65,7 +65,7 @@
       community.proxmox.proxmox_kvm:
         api_user: ansible@pam
         api_token_id: ansible-token
-        api_token_secret: "{{ api_key }}"
+        api_token_secret: 047f2c53-a7b5-42cf-a0a2-dbc63b9e8c81
         api_host: 10.24.38.2
         validate_certs: false
         node: "{{ template_source_node }}"
