@@ -162,6 +162,19 @@
   hosts: monitoring
   become: true
   tasks:
+    - name: Wait for cloud-init to finish
+      shell: |
+        while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
+          sleep 2
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      retries: 60
+      delay: 2
+      register: cloudinit_wait
+      until: cloudinit_wait.rc == 0
+
     - name: Install required packages
       apt:
         name:
