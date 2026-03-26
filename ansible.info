@@ -13,25 +13,27 @@ ssh -o BatchMode=yes -i /mnt/pve/cephfs/.ssh/id_ed25519 root@10.24.38.4 "echo ok
 ansible all -m ping -u root --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ansible all -m ping -u root
 
-ansible-playbook ansible/plays/create_vm_template.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
-ansible-playbook ansible/plays/create_vm_template.yml --user=ansible --syntax-check --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
-ansible-playbook ansible/plays/create_vm_template.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/creation/create_vm_template.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/creation/create_vm_template.yml --user=ansible --syntax-check --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/creation/create_vm_template.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
-ansible-playbook ansible/plays/clone_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/creation/clone_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
-ansible-playbook ansible/plays/setup_firewall.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/inventory_management/setup_firewall.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
-ansible-playbook ansible/plays/DESTROY_VM.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/destruction/DESTROY_VM.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/destruction/DESTROY_LXC.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
-ansible-playbook ansible/plays/create_lxc.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
-ansible-playbook ansible/plays/setup_ssh_lxc.yml 
+ansible-playbook ansible/plays/creation/create_lxc.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
-ansible-playbook ansible/plays/add_wordpress.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/inventory_management/setup_ssh_lxc.yml 
 
-ansible-playbook ansible/plays/install_dependencies.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/inventory_management/add_wordpress.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
-ansible-playbook ansible/plays/provision_monitoring_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/cluster_management/install_dependencies.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+
+ansible-playbook ansible/plays/creation/provision_monitoring_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 
 ssh ansible@10.24.38.3 -i /mnt/pve/cephfs/.ssh/id_ed25519
 ansible-vault edit ansible/secrets
