@@ -69,7 +69,7 @@
           [Service]
           Type=simple
           User=root
-          WorkingDirectory=/opt/prometheus-pve-exporter/src
+          WorkingDirectory=/opt/prometheus-pve-exporter
           ExecStart=/opt/prometheus-pve-exporter/bin/pve_exporter --config.file /opt/prometheus-pve-exporter/pve.yml
           Restart=always
 
