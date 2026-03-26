@@ -162,6 +162,18 @@
       failed_when: false
       changed_when: false
 
+    - name: Wait for ssh-keyscan to succeed
+      command: ssh-keyscan -H {{ item.ip }}
+      register: keyscan_result
+      until: keyscan_result.rc == 0 and keyscan_result.stdout != ""
+      retries: 10
+      delay: 3
+      delegate_to: localhost
+      become: false
+      loop: "{{ vm_instances }}"
+      loop_control:
+        label: "{{ item.name }}"
+
     - name: Add VM host keys to known_hosts
       known_hosts:
         path: /mnt/pve/cephfs/.ssh/known_hosts
