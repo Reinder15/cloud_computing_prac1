@@ -62,7 +62,9 @@
           - --cores
           - "{{ lxc_cores }}"
           - --storage
-          - "{{ storage }}:{{ lxc_storage_size }}"
+          - "{{ storage }}"
+          - --rootfs
+          - "{{ storage }}:30"
           - --net0
           - "name=eth0,bridge=vmbr0,ip={{ item.item.ip }}/24,gw={{ gateway }},rate={{ lxc_net_rate_mb }}"
           - --nameserver
