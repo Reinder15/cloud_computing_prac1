@@ -71,7 +71,7 @@ De configuratie is onderverdeeld in:
 Maakt Ansible-gebruikers aan en configureert SSH-sleutels op alle nodes.
 
 ```sh
-ansible-playbook ansible/plays/cluster_management/onboard_nodes.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/cluster_management/onboard_nodes.yml --user=root --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
 **Install Dependencies**
