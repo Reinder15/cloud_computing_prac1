@@ -30,6 +30,12 @@ template_memory: 2048
 template_cores: 2
 template_disk_size_gb: 30
 
+# Monitoring VM defaults
+monitoring_vmid: 1200
+monitoring_name: monitoring
+monitoring_ip: 10.24.38.120
+
+
 # VM defaults
 template_source_node: node1
 vm_net_rate_mb: 50

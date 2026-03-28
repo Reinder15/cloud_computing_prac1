@@ -4,23 +4,12 @@
   gather_facts: false
   vars_files:
     - ../../secrets
-  vars:
-    monitoring_vmid: 1200
-    monitoring_name: monitoring
-    monitoring_ip: 10.24.38.120
-    client_user: monitoring
-    template_source_node: node1
-    template_vmid: 9000
-    template_name: ubuntu-2404-golden
-    storage: ceph-pool
-    gateway: 10.24.38.1
-    ssh_dir: /mnt/pve/cephfs/.ssh
-    ansible_pubkey_path: /mnt/pve/cephfs/.ssh/id_ed25519.pub
+    - ../../vars/main.yml
 
   tasks:
     - name: Generate SSH key-pair for monitoring VM
       command: >
-        ssh-keygen -t ed25519 -N "" -f {{ ssh_dir }}/{{ monitoring_name }}_id_ed25519 -C {{ client_user }}@{{ monitoring_name }}
+        ssh-keygen -t ed25519 -N "" -f {{ ssh_dir }}/{{ monitoring_name }}_id_ed25519 -C {{ monitoring_name }}@{{ monitoring_name }}
       args:
         creates: "{{ ssh_dir }}/{{ monitoring_name }}_id_ed25519"
 
@@ -53,7 +42,7 @@
               shell: /bin/bash
               ssh_authorized_keys:
                 - "{{ lookup('file', ansible_pubkey_path) }}"
-            - name: {{ client_user }}
+            - name: {{ monitoring_name }}
               groups: [sudo]
               shell: /bin/bash
               ssh_authorized_keys:
@@ -169,6 +158,9 @@
 - name: Install Prometheus and Grafana on monitoring VM
   hosts: monitoring
   become: true
+  vars_files:
+    - ../../vars/main.yml
+
   tasks:
     - name: Wait for cloud-init to finish
       shell: |
@@ -255,7 +247,6 @@
                 node: ['3']
               static_configs:
                 - targets: ['10.24.38.4:9221']
-          # Add more jobs for node_exporter or guest exporters as needed
 
     - name: Start Prometheus and Grafana containers
       shell: docker-compose -f /home/ansible/monitoring-docker-compose.yml up -d
