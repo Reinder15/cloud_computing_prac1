@@ -21,20 +21,20 @@
       args:
         creates: "{{ lxc_template_cache_path }}/{{ lxc_template_file }}"
 
-    - name: Generate client SSH keys for each container
+    - name: Generate client SSH keys for each container (hostname-based)
       command:
         argv:
           - ssh-keygen
           - -t
           - ed25519
           - -f
-          - "{{ ssh_dir }}/{{ item.client_user }}_id_ed25519"
+          - "{{ ssh_dir }}/{{ item.hostname }}_id_ed25519"
           - -N
           - ""
           - -C
           - "{{ item.client_user }}@{{ item.hostname }}"
       args:
-        creates: "{{ ssh_dir }}/{{ item.client_user }}_id_ed25519.pub"
+        creates: "{{ ssh_dir }}/{{ item.hostname }}_id_ed25519.pub"
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
@@ -74,7 +74,7 @@
           - --start
           - "1"
           - --ssh-public-keys
-          - "{{ ssh_dir }}/{{ item.item.client_user }}_id_ed25519.pub"
+          - "{{ ssh_dir }}/{{ item.item.hostname }}_id_ed25519.pub"
       loop: "{{ lxc_config_check.results }}"
       loop_control:
         label: "{{ item.item.hostname }}"
@@ -179,7 +179,7 @@
       lineinfile:
         path: "{{ lxc_inventory_path }}"
         insertafter: '^\[lxc_wordpress\]$'
-        line: '{{ item.hostname }} ansible_host={{ item.ip }} ansible_user=ansible ansible_ssh_private_key_file={{ ansible_private_key_path }} lxc_ctid={{ item.ctid }} client_user={{ item.client_user }} client_pubkey_file={{ ssh_dir }}/{{ item.client_user }}_id_ed25519.pub'
+        line: '{{ item.hostname }} ansible_host={{ item.ip }} ansible_user=ansible ansible_ssh_private_key_file={{ ansible_private_key_path }} lxc_ctid={{ item.ctid }} client_user={{ item.client_user }} client_pubkey_file={{ ssh_dir }}/{{ item.hostname }}_id_ed25519.pub'
         state: present
       loop: "{{ containers }}"
       loop_control:
@@ -230,7 +230,7 @@
     - name: Print LXC container SSH access info
       debug:
         msg: >-
-          LXC {{ item.hostname }}: ip={{ item.ip }}, client_user={{ item.client_user }}, client_private_key={{ ssh_dir }}/{{ item.client_user }}_id_ed25519
+          LXC {{ item.hostname }}: ip={{ item.ip }}, client_user={{ item.client_user }}, client_private_key={{ ssh_dir }}/{{ item.hostname }}_id_ed25519
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
