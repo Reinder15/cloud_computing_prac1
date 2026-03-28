@@ -60,7 +60,7 @@
           default:
             user: monitoring@pve
             token_name: exporter
-            token_value: bbbbf52c-f8d4-4d94-b021-b042bdaad646
+            token_value: "{{ exporter_api_key }}"
             verify_ssl: false
 
     - name: Create systemd service for prometheus-pve-exporter (module-based)

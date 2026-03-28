@@ -198,3 +198,17 @@
       loop: "{{ vm_instances }}"
       loop_control:
         label: "vm:{{ item.vmid }}"
+
+    - name: Print VM SSH access info
+      debug:
+        msg: |
+          VM {{ item.name }} is running at {{ item.ip }}
+          SSH access:
+            ansible_user: ansible
+            ansible_host: {{ item.ip }}
+            ansible_ssh_private_key_file: {{ ssh_dir }}/id_ed25519
+          Client user: {{ item.client_user }}
+          Client public key: {{ ssh_dir }}/{{ item.name }}_id_ed25519.pub
+      loop: "{{ vm_instances }}"
+      loop_control:
+        label: "{{ item.name }}"

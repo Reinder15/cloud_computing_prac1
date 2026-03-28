@@ -2,8 +2,6 @@
 gateway: 10.24.38.1
 nameserver: 8.8.8.8
 storage: ceph-pool
-template_storage: local
-template_cache_path: /var/lib/vz/template/cache
 ssh_dir: /mnt/pve/cephfs/.ssh
 ansible_user: ansible
 ansible_private_key_path: "{{ ssh_dir }}/id_ed25519"
@@ -14,6 +12,8 @@ proxmox_api_user: ansible@pam
 proxmox_api_token_id: ansible-token
 
 # LXC container defaults
+lxc_template_storage: local
+lxc_template_cache_path: /var/lib/vz/template/cache
 lxc_template_file: ubuntu-22.04-standard_22.04-1_amd64.tar.zst
 lxc_net_rate_mb: 50
 lxc_inventory_path: /etc/ansible/hosts
@@ -22,48 +22,61 @@ lxc_memory: 1024
 lxc_cores: 1
 lxc_storage_size: 30
 
-# VM defaults
+# VM Template defaults
 template_vmid: 9000
-template_source_node: node1
 template_name: ubuntu-2404-golden
+template_image_path: /var/lib/vz/template/qemu/noble-server-cloudimg-amd64.img
+template_memory: 2048
+template_cores: 2
+
+# VM defaults
+template_source_node: node1
 vm_net_rate_mb: 50
 
-# HA settings (for VMs)
+# VM HA defaults
 ha_rule_name: wordpress-ha
 ha_nodes: node1,node2,node3
 ha_rule_strict: false
 ha_failback: false
 
-# Container and VM lists
+# Inventory
 containers:
-- ctid: 201
-  hostname: wordpress-lxc-201
-  ip: 10.24.38.201
-  client_user: client-a
+  - ctid: 201
+    hostname: wordpress-lxc-201
+    ip: 10.24.38.201
+    client_user: client-a
 
-- ctid: 202
-  hostname: wordpress-lxc-202
-  ip: 10.24.38.202
-  client_user: client-b
+  - ctid: 202
+    hostname: wordpress-lxc-202
+    ip: 10.24.38.202
+    client_user: client-b
+  
+  - ctid: 203
+    hostname: wordpress-lxc-203
+    ip: 10.24.38.203
+    client_user: client-c
 
 vm_instances:
   - vmid: 1101
     name: wp-client-a
     ip: 10.24.38.111
     client_user: client-a
+
   - vmid: 1102
     name: wp-client-b
     ip: 10.24.38.112
     client_user: client-b
+  
+  - vmid: 1103
+    name: wp-client-c
+    ip: 10.24.38.113
+    client_user: client-c
 
 
 # For destruction
 vm_destroy_list: 
   - wp-client-a
   - wp-client-b
-
-
-
 
 
 ### Wordpress

@@ -16,10 +16,10 @@
         argv:
           - pveam
           - download
-          - "{{ template_storage }}"
+          - "{{ lxc_template_storage }}"
           - "{{ lxc_template_file }}"
       args:
-        creates: "{{ template_cache_path }}/{{ lxc_template_file }}"
+        creates: "{{ lxc_template_cache_path }}/{{ lxc_template_file }}"
 
     - name: Generate client SSH keys for each container
       command:
@@ -54,7 +54,7 @@
           - pct
           - create
           - "{{ item.item.ctid | string }}"
-          - "{{ template_storage }}:vztmpl/{{ lxc_template_file }}"
+          - "{{ lxc_template_storage }}:vztmpl/{{ lxc_template_file }}"
           - --hostname
           - "{{ item.item.hostname }}"
           - --memory
@@ -181,6 +181,20 @@
         label: "{{ item.item.hostname }}"
       when: item.rc == 0 and (item.stdout | length > 0)
       delegate_to: localhost
+
+    - name: Print LXC container SSH access info
+      debug:
+        msg: |
+          Container {{ item.hostname }} is running at {{ item.ip }}
+          SSH access:
+            ansible_user: ansible
+            ansible_host: {{ item.ip }}
+            ansible_ssh_private_key_file: {{ ansible_private_key_path }}
+          Client user: {{ item.client_user }}
+          Client public key: {{ ssh_dir }}/{{ item.client_user }}_id_ed25519.pub
+      loop: "{{ containers }}"
+      loop_control:
+        label: "{{ item.hostname }}"
 
 
 
