@@ -92,6 +92,7 @@ ansible-playbook ansible/plays/creation/create_vm_template.yml --user=ansible --
 
 **Provision Monitoring VM**
 Maakt een monitoring-VM aan (Prometheus, Grafana, pve-exporter, etc.).
+dashboard url: [https://grafana.com/grafana/dashboards/10347-proxmox-via-prometheus/]
 
 ```sh
 ansible-playbook ansible/plays/creation/provision_monitoring_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
