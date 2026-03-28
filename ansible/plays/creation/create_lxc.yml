@@ -128,7 +128,7 @@
 
     - name: Allow passwordless sudo for ansible user in container
       command: >-
-        pct exec {{ item.ctid }} -- bash -c 'echo ansible ALL=(ALL) NOPASSWD:ALL > /etc/sudoers.d/90-ansible && chmod 440 /etc/sudoers.d/90-ansible'
+        pct exec {{ item.ctid }} -- bash -c 'echo "ansible ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-ansible && chmod 440 /etc/sudoers.d/90-ansible'
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
