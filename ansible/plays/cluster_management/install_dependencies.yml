@@ -11,8 +11,8 @@
     
     - name: Upgrade all packages to the latest version
       apt:
-      upgrade: dist
-      update_cache: yes
+        upgrade: dist
+        update_cache: yes
     
     - name: install proxmoxer
       apt:
