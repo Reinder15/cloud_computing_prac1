@@ -117,12 +117,20 @@
         node: node1
         state: started
 
-    - name: Add monitoring VM to inventory
+
+    - name: Add monitoring VM to inventory (persistent)
       lineinfile:
         path: /etc/ansible/hosts
         insertafter: '^\[monitor_server\]$'
         line: "monitoring ansible_host={{ monitoring_ip }} ansible_user=ansible ansible_ssh_private_key_file={{ ssh_dir }}/id_ed25519"
         state: present
+
+    - name: Add monitoring host to in-memory inventory for next play
+      add_host:
+        name: monitoring
+        ansible_host: "{{ monitoring_ip }}"
+        ansible_user: ansible
+        ansible_ssh_private_key_file: "{{ ssh_dir }}/id_ed25519"
 
     - name: Wait for SSH port on monitoring VM
       wait_for:
