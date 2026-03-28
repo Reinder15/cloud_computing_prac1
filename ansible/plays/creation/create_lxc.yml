@@ -105,19 +105,22 @@
         label: "{{ item.hostname }}"
 
     - name: Set permissions on .ssh directory for ansible user
-      command: "pct exec {{ item.ctid }} -- chown ansible:ansible /home/ansible/.ssh && chmod 700 /home/ansible/.ssh"
+      command: >-
+        pct exec {{ item.ctid }} -- bash -c 'chown ansible:ansible /home/ansible/.ssh && chmod 700 /home/ansible/.ssh'
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
 
     - name: Add ansible public key to authorized_keys in container
-      command: "pct exec {{ item.ctid }} -- bash -c 'echo {{ lookup('file', ansible_pubkey_path) | trim | quote }} >> /home/ansible/.ssh/authorized_keys'"
+      command: >-
+        pct exec {{ item.ctid }} -- bash -c 'echo {{ lookup('file', ansible_pubkey_path) | trim | quote }} >> /home/ansible/.ssh/authorized_keys'
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
 
     - name: Set permissions on authorized_keys for ansible user
-      command: "pct exec {{ item.ctid }} -- chown ansible:ansible /home/ansible/.ssh/authorized_keys && chmod 600 /home/ansible/.ssh/authorized_keys"
+      command: >-
+        pct exec {{ item.ctid }} -- bash -c 'chown ansible:ansible /home/ansible/.ssh/authorized_keys && chmod 600 /home/ansible/.ssh/authorized_keys'
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
@@ -130,7 +133,8 @@
         label: "{{ item.hostname }}"
 
     - name: Update apt
-      command: "pct exec {{ item.ctid }} -- env DEBIAN_FRONTEND=noninteractive apt update"
+      command: >-
+        pct exec {{ item.ctid }} -- bash -c 'env DEBIAN_FRONTEND=noninteractive apt update'
       register: lxc_apt_update_result
       retries: 3
       delay: 20
@@ -141,7 +145,8 @@
         label: "{{ item.hostname }}"
 
     - name: Install OpenSSH server in containers
-      command: "pct exec {{ item.ctid }} -- env DEBIAN_FRONTEND=noninteractive apt install -y openssh-server"
+      command: >-
+        pct exec {{ item.ctid }} -- bash -c 'env DEBIAN_FRONTEND=noninteractive apt install -y openssh-server'
       register: lxc_ssh_install_result
       retries: 3
       delay: 20
@@ -153,7 +158,8 @@
         label: "{{ item.hostname }}"
 
     - name: Ensure SSH service is enabled and running in containers
-      command: "pct exec {{ item.ctid }} -- systemctl enable --now ssh"
+      command: >-
+        pct exec {{ item.ctid }} -- bash -c 'systemctl enable --now ssh'
       changed_when: false
       loop: "{{ containers }}"
       loop_control:
