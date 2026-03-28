@@ -184,20 +184,8 @@
 
     - name: Print LXC container SSH access info
       debug:
-        msg: |
-          Container {{ item.hostname }} is running at {{ item.ip }}
-          SSH access:
-            ansible_user: ansible
-            ansible_host: {{ item.ip }}
-            ansible_ssh_private_key_file: {{ ansible_private_key_path }}
-          Client user: {{ item.client_user }}
-          Client public key: {{ ssh_dir }}/{{ item.client_user }}_id_ed25519.pub
+        msg: >-
+          LXC {{ item.hostname }}: ip={{ item.ip }}, client_user={{ item.client_user }}, client_private_key={{ ssh_dir }}/{{ item.client_user }}_id_ed25519
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
-
-
-
-      
-
-  
