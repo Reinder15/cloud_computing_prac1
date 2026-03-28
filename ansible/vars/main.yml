@@ -84,6 +84,7 @@ vm_instances:
 vm_destroy_list: 
   - wp-client-a
   - wp-client-b
+  - wp-client-c
 
 
 ### Wordpress
