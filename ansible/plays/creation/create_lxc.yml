@@ -80,6 +80,7 @@
         label: "{{ item.item.hostname }}"
       when: item.rc != 0
 
+
     - name: Ensure containers are started
       command: "pct start {{ item.ctid }}"
       register: lxc_start_result
@@ -87,6 +88,43 @@
         (lxc_start_result.rc != 0) and
         ('already running' not in (lxc_start_result.stderr | default('') | lower))
       changed_when: lxc_start_result.rc == 0
+      loop: "{{ containers }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+
+    - name: Ensure ansible user exists in container
+      command: "pct exec {{ item.ctid }} -- bash -c 'id ansible || useradd -m -s /bin/bash -G sudo ansible'"
+      loop: "{{ containers }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+
+    - name: Ensure .ssh directory exists for ansible user
+      command: "pct exec {{ item.ctid }} -- mkdir -p /home/ansible/.ssh"
+      loop: "{{ containers }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+
+    - name: Set permissions on .ssh directory for ansible user
+      command: "pct exec {{ item.ctid }} -- chown ansible:ansible /home/ansible/.ssh && chmod 700 /home/ansible/.ssh"
+      loop: "{{ containers }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+
+    - name: Add ansible public key to authorized_keys in container
+      command: "pct exec {{ item.ctid }} -- bash -c 'echo {{ lookup('file', ansible_pubkey_path) | trim | quote }} >> /home/ansible/.ssh/authorized_keys'"
+      loop: "{{ containers }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+
+    - name: Set permissions on authorized_keys for ansible user
+      command: "pct exec {{ item.ctid }} -- chown ansible:ansible /home/ansible/.ssh/authorized_keys && chmod 600 /home/ansible/.ssh/authorized_keys"
+      loop: "{{ containers }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+
+    - name: Allow passwordless sudo for ansible user in container
+      command: >-
+        pct exec {{ item.ctid }} -- bash -c 'echo ansible ALL=(ALL) NOPASSWD:ALL > /etc/sudoers.d/90-ansible && chmod 440 /etc/sudoers.d/90-ansible'
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
