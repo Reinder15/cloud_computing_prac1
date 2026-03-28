@@ -8,6 +8,20 @@
 
   tasks:
 
+    - name: Ensure VM is stopped before destroying
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ api_key | trim }}"
+        api_password: ""
+        validate_certs: false
+        name: "{{ item }}"
+        state: stopped
+      loop: "{{ vm_destroy_list }}"
+      loop_control:
+        label: "{{ item }}"
+
     - name: Destroy VM by name
       community.proxmox.proxmox_kvm:
         api_host: "{{ proxmox_api_host }}"
