@@ -111,16 +111,17 @@
       loop_control:
         label: "{{ item.hostname }}"
 
-    - name: Add ansible public key to authorized_keys in container
+
+    - name: Ensure authorized_keys file exists for ansible user
       command: >-
-        pct exec {{ item.ctid }} -- bash -c 'echo {{ lookup('file', ansible_pubkey_path) | trim | quote }} >> /home/ansible/.ssh/authorized_keys'
+        pct exec {{ item.ctid }} -- bash -c 'touch /home/ansible/.ssh/authorized_keys && chown ansible:ansible /home/ansible/.ssh/authorized_keys && chmod 600 /home/ansible/.ssh/authorized_keys'
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
 
-    - name: Set permissions on authorized_keys for ansible user
+    - name: Add ansible public key to authorized_keys in container
       command: >-
-        pct exec {{ item.ctid }} -- bash -c 'chown ansible:ansible /home/ansible/.ssh/authorized_keys && chmod 600 /home/ansible/.ssh/authorized_keys'
+        pct exec {{ item.ctid }} -- bash -c 'echo {{ lookup('file', ansible_pubkey_path) | trim | quote }} >> /home/ansible/.ssh/authorized_keys'
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
