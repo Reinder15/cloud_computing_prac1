@@ -53,6 +53,7 @@
     command: >
       qm importdisk {{ template_vmid }} {{ template_image_path }} {{ storage }}
 
+
   - name: Attach disks and cloud-init metadata
     command: >
       qm set {{ template_vmid }}
@@ -62,6 +63,9 @@
       --boot order=virtio0
       --ipconfig0 ip=dhcp
       --cicustom vendor=cephfs:snippets/vendor-minimal.yaml
+
+  - name: Resize disk
+    command: qm resize {{ template_vmid }} virtio0 {{ template_disk_size_gb }}G
 
   - name: Refresh cloud-init metadata
     command: qm cloudinit update {{ template_vmid }}
