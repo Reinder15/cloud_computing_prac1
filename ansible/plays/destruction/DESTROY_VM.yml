@@ -8,6 +8,7 @@
 
   tasks:
 
+
     - name: Ensure VM is stopped before destroying
       community.proxmox.proxmox_kvm:
         api_host: "{{ proxmox_api_host }}"
@@ -18,6 +19,24 @@
         validate_certs: false
         name: "{{ item }}"
         state: stopped
+      loop: "{{ vm_destroy_list }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Wait until VM is actually stopped
+      community.proxmox.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ api_key | trim }}"
+        api_password: ""
+        validate_certs: false
+        name: "{{ item }}"
+        state: stopped
+      register: stop_check
+      until: stop_check is succeeded and (stop_check.instance.status is defined and stop_check.instance.status == 'stopped')
+      retries: 10
+      delay: 5
       loop: "{{ vm_destroy_list }}"
       loop_control:
         label: "{{ item }}"
