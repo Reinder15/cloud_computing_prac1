@@ -121,7 +121,7 @@
 
     - name: Copy ansible public key to authorized_keys in container
       command: >-
-        pct exec {{ item.ctid }} -- bash -c 'echo {{ lookup('file', ansible_pubkey_path) | trim | quote }} > /home/ansible/.ssh/authorized_keys'
+        pct exec {{ item.ctid }} -- bash -c 'echo {{ lookup('file', ansible_pubkey_path) | trim | quote }} | sudo -u ansible tee /home/ansible/.ssh/authorized_keys > /dev/null'
       loop: "{{ containers }}"
       loop_control:
         label: "{{ item.hostname }}"
