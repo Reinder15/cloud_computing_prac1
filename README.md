@@ -35,21 +35,10 @@ Deze repository bevat een Ansible-configuratie voor het geautomatiseerd opzetten
 | 35448902     | node2.klein-mkb-host.nl     | 10.24.38.3     |
 | 35448903     | node3.klein-mkb-host.nl     | 10.24.38.4     |
 
-## SSH-setup
-
-```sh
-pvesm add cephfs cephfs --path /mnt/pve/cephfs --content backup,vztmpl,iso,snippets --nodes node1,node2,node3
-ceph mds stat
-ceph fs ls
-ls -la /mnt/pve/cephfs
-cd /mnt/pve/cephfs
-git clone https://github.com/Reinder15/cloud_computing_prac1.git
-```
-
 ## Configuratie-overzicht
 
-- **main.yml** is het hoofd-entrypoint en definieert alle rollen en taken voor het opzetten en beheren van het cluster.
-- Geheime gegevens worden opgeslagen in `ansible/secrets` en beheerd met Ansible Vault:
+- **main.yml** is het main-entrypoint en definieert alle rollen en taken voor het opzetten en beheren van het cluster.
+- Secrets worden opgeslagen in `ansible/secrets` en beheerd met Ansible Vault:
 
 ```sh
 ansible-vault edit ansible/secrets
@@ -146,8 +135,3 @@ ansible-playbook ansible/plays/destruction/DESTROY_MONITORING.yml --user=ansible
 ```
 
 ---
-
-## Notities
-
-- Alle playbooks zijn modulair opgezet en kunnen onafhankelijk worden uitgevoerd.
-- Gebruik voor gevoelige data altijd Ansible Vault.
