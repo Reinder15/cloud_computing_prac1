@@ -105,7 +105,7 @@ ansible-playbook ansible/plays/creation/create_lxc.yml --user=ansible --private-
 Configureert SSH-toegang voor LXC-containers.
 
 ```sh
-ansible-playbook ansible/plays/inventory_management/setup_ssh_lxc.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+ansible-playbook ansible/plays/inventory_management/add_client_ssh.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
 ### Inventory Management
