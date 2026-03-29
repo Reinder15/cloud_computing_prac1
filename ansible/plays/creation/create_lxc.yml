@@ -215,11 +215,3 @@
         label: "{{ item.item.hostname }}"
       when: item.rc == 0 and (item.stdout | length > 0)
       delegate_to: localhost
-
-    - name: Print LXC container SSH access info
-      debug:
-        msg: >-
-          LXC {{ item.hostname }}: ip={{ item.ip }}, client_user={{ item.client_user }}, client_private_key={{ ssh_dir }}/{{ item.hostname }}_id_ed25519
-      loop: "{{ containers }}"
-      loop_control:
-        label: "{{ item.hostname }}"

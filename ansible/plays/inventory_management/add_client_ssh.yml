@@ -70,3 +70,8 @@
         state: present
       delegate_to: localhost
       become: false
+    
+    - name: Print LXC container SSH access info
+      debug:
+        msg: >-
+          LXC {{ inventory_hostname }}: ip={{ ansible_host }}, client_user={{ client_user }}, client_private_key={{ ssh_dir }}/{{ inventory_hostname }}_id_ed25519
