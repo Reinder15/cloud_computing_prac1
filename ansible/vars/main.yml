@@ -79,6 +79,11 @@ vm_instances:
     ip: 10.24.38.113
     client_user: client-c
 
+  - vmid: 1104
+    name: gitea
+    ip: 10.24.38.114
+    client_user: gitea
+
 
 # For destruction
 vm_destroy_list: 
