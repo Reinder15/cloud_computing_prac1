@@ -79,15 +79,24 @@
         full: true
         state: present
       loop: "{{ vm_instances }}"
+      register: clone_result
 
-    - name: Apply cloud-init
+    - name: Apply cloud-init (rerun-safe)
       command: >
         qm set {{ item.vmid }}
         --cicustom user=cephfs:snippets/{{ item.name }}-user-data.yaml
         --ipconfig0 ip={{ item.ip }}/24,gw={{ gateway }}
         --nameserver "{{ nameserver }}"
+      loop: "{{ vm_instances }}"
+
+    - name: Configure net0 only for newly cloned VMs
+      command: >
+        qm set {{ item.vmid }}
         --net0 virtio,bridge=vmbr0,rate={{ vm_net_rate_mb }}
       loop: "{{ vm_instances }}"
+      loop_control:
+        index_var: vm_idx
+      when: clone_result.results[vm_idx].changed
 
     - name: Refresh cloud-init data
       command: qm cloudinit update {{ item.vmid }}
