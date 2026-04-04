@@ -68,31 +68,37 @@ vm_instances:
     name: wp-client-a
     ip: 10.24.38.111
     client_user: client-a
+    target_node: node2
 
   - vmid: 1102
     name: wp-client-b
     ip: 10.24.38.112
     client_user: client-b
-  
+    target_node: node2
+
   - vmid: 1103
     name: wp-client-c
     ip: 10.24.38.113
     client_user: client-c
+    target_node: node2
 
   - vmid: 1104
     name: gitea
     ip: 10.24.38.114
     client_user: gitea
+    target_node: node1
 
   - vmid: 1105
     name: docker-tutorial
     ip: 10.24.38.115
     client_user: docker
+    target_node: node1
   
   - vmid: 1106
     name: docker-worker
     ip: 10.24.38.116
     client_user: docker
+    target_node: node1
 
 
 # For destruction

@@ -10,6 +10,8 @@
   vars_files:
     - ../../secrets
     - ../../vars/main.yml
+  vars:
+    default_vm_target_node: "{{ template_source_node }}"
 
   tasks:
 
@@ -74,7 +76,7 @@
         vmid: "{{ template_vmid }}"
         newid: "{{ item.vmid }}"
         name: "{{ item.name }}"
-        target: node1
+        target: "{{ item.target_node | default(default_vm_target_node) }}"
         storage: "{{ storage }}"
         full: true
         state: present
@@ -111,7 +113,7 @@
         api_host: 10.24.38.2
         validate_certs: false
         vmid: "{{ item.vmid }}"
-        node: node1
+        node: "{{ item.target_node | default(default_vm_target_node) }}"
         state: started
       loop: "{{ vm_instances }}"
     
