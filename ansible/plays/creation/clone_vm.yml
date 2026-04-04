@@ -62,7 +62,7 @@
           disable_root: true
       loop: "{{ vm_instances }}"
 
-    - name: Clone VM from golden template
+    - name: Clone VM from template
       community.proxmox.proxmox_kvm:
         api_user: ansible@pam
         api_token_id: ansible-token
