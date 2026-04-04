@@ -88,6 +88,11 @@ vm_instances:
     name: docker-tutorial
     ip: 10.24.38.115
     client_user: docker
+  
+  - vmid: 1106
+    name: docker-worker
+    ip: 10.24.38.116
+    client_user: docker
 
 
 # For destruction
