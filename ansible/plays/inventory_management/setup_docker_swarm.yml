@@ -22,6 +22,46 @@
           - swarm_worker_host in groups['all']
         fail_msg: "Manager '{{ swarm_manager_host }}' or worker '{{ swarm_worker_host }}' is missing from inventory"
 
+- name: Install Docker on swarm nodes
+  hosts: "{{ docker_swarm_clusters[swarm_target_node].manager }},{{ docker_swarm_clusters[swarm_target_node].worker }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../../vars/main.yml
+
+  tasks:
+    - name: Update apt repositories
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Remove old Docker packages
+      ansible.builtin.command:
+        argv:
+          - apt-get
+          - remove
+          - -y
+          - docker
+          - docker-engine
+          - docker.io
+      failed_when: false
+      changed_when: false
+
+    - name: Install Docker engine
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+
+    - name: Start Docker service
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Verify Docker version
+      ansible.builtin.command: docker --version
+      changed_when: false
+
 - name: Initialize Docker Swarm manager
   hosts: "{{ docker_swarm_clusters[swarm_target_node].manager }}"
   become: true

@@ -124,6 +124,13 @@ Installeert en configureert WordPress (inclusief database- en webserverconfigura
 ansible-playbook ansible/plays/inventory_management/add_wordpress.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
+**Setup Docker Swarm**
+Installeert Docker en configureert een Docker Swarm-cluster op de nodes.
+
+```sh
+ansible-playbook ansible/plays/inventory_management/setup_docker_swarm.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+```
+
 ### Opschonen / Vernietigen
 
 Maak het cluster eenvoudig schoon door VM's, LXC-containers en monitoring-setup te verwijderen:
