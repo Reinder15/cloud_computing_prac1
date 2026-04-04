@@ -84,6 +84,11 @@ vm_instances:
     ip: 10.24.38.114
     client_user: gitea
 
+  - vmid: 1105
+    name: docker-tutorial
+    ip: 10.24.38.115
+    client_user: docker
+
 
 # For destruction
 vm_destroy_list: 
