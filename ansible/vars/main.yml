@@ -23,10 +23,10 @@ lxc_cores: 1
 lxc_storage_size: 30
 
 # VM Template defaults
-template_vmid: 9000
-template_name: ubuntu-2404-golden
+template_vmid: 8000
+template_name: ubuntu-2404-docker
 template_image_path: /var/lib/vz/template/qemu/noble-server-cloudimg-amd64.img
-template_memory: 2048
+template_memory: 4096
 template_cores: 2
 template_disk_size_gb: 30
 
