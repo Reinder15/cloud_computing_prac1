@@ -1,0 +1,101 @@
+---
+- name: Validate swarm target variables
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - ../../vars/main.yml
+  vars:
+    swarm_manager_host: "{{ docker_swarm_clusters[swarm_target_node].manager }}"
+    swarm_worker_host: "{{ docker_swarm_clusters[swarm_target_node].worker }}"
+
+  tasks:
+    - name: Validate swarm target node exists in docker_swarm_clusters
+      ansible.builtin.assert:
+        that:
+          - swarm_target_node in docker_swarm_clusters
+        fail_msg: "swarm_target_node '{{ swarm_target_node }}' is not defined in docker_swarm_clusters"
+
+    - name: Validate selected manager and worker hosts exist in inventory
+      ansible.builtin.assert:
+        that:
+          - swarm_manager_host in groups['all']
+          - swarm_worker_host in groups['all']
+        fail_msg: "Manager '{{ swarm_manager_host }}' or worker '{{ swarm_worker_host }}' is missing from inventory"
+
+- name: Initialize Docker Swarm manager
+  hosts: "{{ docker_swarm_clusters[swarm_target_node].manager }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../../vars/main.yml
+  vars:
+    swarm_manager_host: "{{ docker_swarm_clusters[swarm_target_node].manager }}"
+    swarm_worker_host: "{{ docker_swarm_clusters[swarm_target_node].worker }}"
+
+  tasks:
+    - name: Check current swarm state on manager
+      ansible.builtin.command: docker info --format {{'{{.Swarm.LocalNodeState}}'}}
+      register: manager_swarm_state
+      changed_when: false
+
+    - name: Initialize swarm on manager when inactive
+      ansible.builtin.command: docker swarm init --advertise-addr {{ ansible_host | default(inventory_hostname) }}
+      when: manager_swarm_state.stdout == "inactive"
+
+    - name: Get worker join token from manager
+      ansible.builtin.command: docker swarm join-token -q worker
+      register: worker_join_token
+      changed_when: false
+
+    - name: Store worker join command as manager fact
+      ansible.builtin.set_fact:
+        swarm_worker_join_cmd: "docker swarm join --token {{ worker_join_token.stdout }} {{ ansible_host | default(inventory_hostname) }}:2377"
+
+- name: Join worker to Docker Swarm
+  hosts: "{{ docker_swarm_clusters[swarm_target_node].worker }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../../vars/main.yml
+  vars:
+    swarm_manager_host: "{{ docker_swarm_clusters[swarm_target_node].manager }}"
+    swarm_worker_host: "{{ docker_swarm_clusters[swarm_target_node].worker }}"
+
+  tasks:
+    - name: Check current swarm state on worker
+      ansible.builtin.command: docker info --format {{'{{.Swarm.LocalNodeState}}'}}
+      register: worker_swarm_state
+      changed_when: false
+
+    - name: Join worker to manager swarm when inactive
+      ansible.builtin.command: "{{ hostvars[swarm_manager_host].swarm_worker_join_cmd }}"
+      when: worker_swarm_state.stdout == "inactive"
+
+- name: Validate swarm and deploy HelloWorld service
+  hosts: "{{ docker_swarm_clusters[swarm_target_node].manager }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../../vars/main.yml
+  vars:
+    swarm_manager_host: "{{ docker_swarm_clusters[swarm_target_node].manager }}"
+    swarm_worker_host: "{{ docker_swarm_clusters[swarm_target_node].worker }}"
+
+  tasks:
+    - name: Show swarm nodes
+      ansible.builtin.command: docker node ls
+      changed_when: false
+
+    - name: Check if HelloWorld service exists
+      ansible.builtin.command: docker service inspect HelloWorld
+      register: hello_service_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create HelloWorld service when missing
+      ansible.builtin.command: docker service create --name HelloWorld alpine ping docker.com
+      when: hello_service_check.rc != 0
+
+    - name: Show swarm services
+      ansible.builtin.command: docker service ls
+      changed_when: false

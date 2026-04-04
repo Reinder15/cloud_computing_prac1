@@ -46,6 +46,20 @@ ha_nodes: node1,node2,node3
 ha_rule_strict: false
 ha_failback: false
 
+# Docker Swarm defaults
+# Select which Proxmox node's VM pair should form a swarm cluster.
+swarm_target_node: node2
+docker_swarm_clusters:
+  node1:
+    manager: docker-tutorial
+    worker: docker-worker
+  node2:
+    manager: docker-manager-node2
+    worker: docker-worker-node2
+  node3:
+    manager: docker-manager-node3
+    worker: docker-worker-node3
+
 # Inventory
 containers:
   - ctid: 201
@@ -99,6 +113,30 @@ vm_instances:
     ip: 10.24.38.116
     client_user: docker
     target_node: node1
+  
+  - vmid: 1107
+    name: docker-manager-node2
+    ip: 10.24.38.117
+    client_user: docker
+    target_node: node2
+
+  - vmid: 1108
+    name: docker-worker-node2
+    ip: 10.24.38.118
+    client_user: docker
+    target_node: node2
+
+  - vmid: 1109
+    name: docker-manager-node3
+    ip: 10.24.38.119
+    client_user: docker
+    target_node: node3
+
+  - vmid: 1110
+    name: docker-worker-node3
+    ip: 10.24.38.121
+    client_user: docker
+    target_node: node3
 
 
 # For destruction

@@ -34,3 +34,9 @@ docker run -dp 10.24.38.115:3000:3000 \
   sh -c "npm install && npm run dev"
 
 docker exec -it a85a78ea7a9f mysql -p todos
+
+
+## Docker Swarm
+docker swarm init --advertise-addr 10.24.38.115
+
+docker swarm join --token SWMTKN-1-1xi7gjyzffofwpwdtz33tifdtw2d2zog4ggo9477nrvjh7zklr-89e8w5sx5rfnh7yf5e6pl319k 10.24.38.115:2377
