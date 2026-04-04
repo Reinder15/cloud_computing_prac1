@@ -90,6 +90,7 @@
         --ipconfig0 ip={{ item.ip }}/24,gw={{ gateway }}
         --nameserver "{{ nameserver }}"
       loop: "{{ vm_instances }}"
+      delegate_to: "{{ item.target_node | default(default_vm_target_node) }}"
 
     - name: Configure net0 only for newly cloned VMs
       command: >
@@ -99,11 +100,13 @@
       loop_control:
         index_var: vm_idx
       when: clone_result.results[vm_idx].changed
+      delegate_to: "{{ item.target_node | default(default_vm_target_node) }}"
 
     - name: Refresh cloud-init data
       command: qm cloudinit update {{ item.vmid }}
       changed_when: false
       loop: "{{ vm_instances }}"
+      delegate_to: "{{ item.target_node | default(default_vm_target_node) }}"
 
     - name: Start VM
       community.proxmox.proxmox_kvm:
