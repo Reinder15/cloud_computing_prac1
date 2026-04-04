@@ -92,9 +92,7 @@ vm_instances:
 
 # For destruction
 vm_destroy_list: 
-  - wp-client-a
-  - wp-client-b
-  - wp-client-c
+  - docker-tutorial
 
 
 ### Wordpress
