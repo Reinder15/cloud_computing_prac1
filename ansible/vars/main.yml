@@ -23,12 +23,12 @@ lxc_cores: 1
 lxc_storage_size: 30
 
 # VM Template defaults
-template_vmid: 8000
-template_name: ubuntu-2404-docker
+template_vmid: 7000
+template_name: ubuntu-2404-suroi
 template_image_path: /var/lib/vz/template/qemu/noble-server-cloudimg-amd64.img
-template_memory: 4096
-template_cores: 2
-template_disk_size_gb: 30
+template_memory: 8192
+template_cores: 4
+template_disk_size_gb: 50
 
 # Monitoring VM defaults
 monitoring_vmid: 1200
@@ -138,6 +138,11 @@ vm_instances:
     client_user: docker
     target_node: node3
 
+  - vmid: 1111
+    name: suroi-prod
+    ip: 10.24.38.200
+    client_user: suroi
+    target_node: node1
 
 # For destruction
 vm_destroy_list: 
