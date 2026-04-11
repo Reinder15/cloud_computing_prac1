@@ -65,31 +65,35 @@ Gebruikt voor docker tutorial: [Docker Networking Documentation](https://docs.do
 
 ## Requirements
 
-| Requirement | Beschrijving |
-|-----------|------|
-| R1 | Inrichting Proxmox cluster / updates via orchestration / enterprise repository / monitoring |
-| R2 | HA met shared storage |
-| R3 | Orchestration script (Bash/Python) |
-| R4 | Orchestration tool (Ansible/Terraform/etc) |
-| R5 | 6x WordPress server (30GB disk / 1 CPU / 1GB RAM / 50MB/s netwerk limit + firewall + SSH keys) |
-| R6 | HA voor WordPress servers |
-| R7 | Unieke gebruikers per server met SSH key access |
-| R8 | Servers automatisch toegevoegd aan monitoring |
+| Requirement | Beschrijving | playbook(s) | 
+|-----------|------|-----------------------|
+| R1 | Inrichting Proxmox cluster / updates via orchestration / enterprise repository / monitoring | ansible/plays/cluster_management/* |
+| R2 | HA met shared storage | ansible/plays/creation/clone_vm.yml |
+| R3 | Orchestration script (Bash/Python) | scripts/* |
+| R4 | Orchestration tool (Ansible/Terraform/etc) | ansible/plays/cluster_management/*, ansible/plays/creation/*, ansible/plays/inventory_management/* |
+| R5 | 6x WordPress server (30GB disk / 1 CPU / 1GB RAM / 50MB/s netwerk limit + firewall + SSH keys) | ansible/plays/creation/clone_vm.yml, ansible/plays/creation/create_lxc.yml |
+| R6 | HA voor WordPress servers | ansible/plays/creation/clone_vm.yml |
+| R7 | Unieke gebruikers per server met SSH key access | ansible/plays/creation/create_vm_template.yml, ansible/plays/creation/clone_vm.yml, ansible/plays/creation/create_lxc.yml, ansible/plays/inventory_management/add_client_ssh.yml |
+| R8 | Servers automatisch toegevoegd aan monitoring | ansible/plays/creation/provision_monitoring_vm.yml, ansible/plays/creation/clone_vm.yml |
 
 ---
 
 ## Playbooks & Gebruik
 
+### Video bewijs
+Alle scripts worden uitgevoerd en gedemonstreerd in de volgende video, waarin het volledige proces van clusterbeheer, VM- en containercreatie, inventory management, en opschonen/vernietigen wordt getoond:
+- https://youtu.be/LcWnaCYMCiE
+
 ### Clusterbeheer
 
-**Onboard Nodes** *(R1, R3, R4)*
+**Onboard Nodes** 
 Maakt Ansible-gebruikers aan en configureert SSH-sleutels op alle nodes voor cluster-level orchestration.
 
 ```sh
 ansible-playbook ansible/plays/cluster_management/onboard_nodes.yml --user=root --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
-**Install Dependencies** *(R1, R3, R4)*
+**Install Dependencies** 
 Installeert benodigde software (Ansible, proxmoxer, git, pve-exporter, etc.) op alle nodes en configureert enterprise repository en monitoring.
 
 ```sh
@@ -98,14 +102,14 @@ ansible-playbook ansible/plays/cluster_management/install_dependencies.yml --use
 
 ### VM- & Containercreatie
 
-**Create VM Template** *(R1, R4, R5, R7)*
+**Create VM Template**
 Maakt een golden VM-template aan (30GB disk, 1 CPU, 1GB RAM) met SSH-key ondersteuning voor unieke gebruikers.
 
 ```sh
 ansible-playbook ansible/plays/creation/create_vm_template.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
-**Provision Monitoring VM** *(R1, R8)*
+**Provision Monitoring VM** 
 Maakt een monitoring-VM aan (Prometheus, Grafana, pve-exporter) en configureert automatische server discovery.
 Dashboard: [https://grafana.com/grafana/dashboards/10347-proxmox-via-prometheus/]
 
@@ -113,21 +117,21 @@ Dashboard: [https://grafana.com/grafana/dashboards/10347-proxmox-via-prometheus/
 ansible-playbook ansible/plays/creation/provision_monitoring_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
-**Clone VM** *(R1, R2, R4, R5, R6, R7, R8)*
+**Clone VM** 
 Kloont 6 WordPress VM's (30GB disk, 1 CPU, 1GB RAM, 50MB/s netwerk limit), configureert HA, unieke SSH-keys per klant, en voegt toe aan monitoring.
 
 ```sh
 ansible-playbook ansible/plays/creation/clone_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
-**Create LXC Container** *(R1, R4, R5, R7)*
+**Create LXC Container**
 Maakt LXC-containers aan voor WordPress (30GB disk, 1 CPU, 1GB RAM) met unieke SSH-keys per klant.
 
 ```sh
 ansible-playbook ansible/plays/creation/create_lxc.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
-**Setup SSH for LXC** *(R7)*
+**Setup SSH for LXC**
 Configureert SSH-toegang voor LXC-containers met unieke client SSH-keys.
 
 ```sh
@@ -136,21 +140,21 @@ ansible-playbook ansible/plays/inventory_management/add_client_ssh.yml --user=an
 
 ### Inventory Management
 
-**Setup Firewall** *(R5, R7)*
+**Setup Firewall**
 Configureert UFW firewallregels op WordPress servers, zodat alleen noodzakelijke diensten bereikbaar zijn (SSH, HTTP, HTTPS).
 
 ```sh
 ansible-playbook ansible/plays/inventory_management/setup_firewall.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
-**Add WordPress** *(R5, R8)*
+**Add WordPress**
 Installeert en configureert WordPress op alle 6 servers (inclusief Apache, MySQL, PHP) en registreert ze in monitoring.
 
 ```sh
 ansible-playbook ansible/plays/inventory_management/add_wordpress.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
-**Setup Docker Swarm** *(R1, R4)*
+**Setup Docker Swarm**
 Installeert Docker en configureert Docker Swarm-cluster voor potentiële containerisatie van services.
 
 ```sh

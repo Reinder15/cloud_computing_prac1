@@ -12,7 +12,7 @@ Docker subnetten (networks) stellen je in staat om containers in geïsoleerde ne
 
 ## Hoe werkt dit?
 
-Wanneer je een Docker network creëert, krijgt het een eigen subnetrange (bijv. 172.20.0.0/16). Containers in hetzelfde network kunnen met elkaar communiceren. Containers in verschillende networks kunnen NIET direkt met elkaar praten, tenzij je dit expliciet configureert via bridge netwerken.
+Wanneer je een Docker network creëert, krijgt het een eigen subnetrange (bijv. 172.20.0.0/16). Containers in hetzelfde netwerk kunnen met elkaar communiceren. Containers in verschillende networks kunnen NIET direkt met elkaar praten, tenzij je dit expliciet configureert via bridge netwerken.
 
 ---
 
