@@ -1,0 +1,22 @@
+services:
+   nginx:
+     container_name: nginx
+     build:
+       context: ./nginx
+       dockerfile: ./Dockerfile
+     ports:
+       - '80:80'
+   server-app-1:
+     container_name: server-app-1
+     build:
+       context: ./server-app-1
+       dockerfile: ./Dockerfile
+     ports:
+       - '4000:4000'
+   server-app-2:
+     container_name: server-app-2
+     build:
+       context: ./server-app-2
+       dockerfile: ./Dockerfile
+     ports:
+       - '3000:3000'
