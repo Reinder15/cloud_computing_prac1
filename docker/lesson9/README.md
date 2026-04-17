@@ -66,7 +66,6 @@ Installeert Docker en configureert Docker Swarm-cluster voor potentiële contain
 ansible-playbook ansible/plays/inventory_management/setup_docker_swarm.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
 ```
 
-
 **Working Swarm Commands**
 ```sh
 docker node ls
@@ -75,4 +74,10 @@ docker service ps HelloWorld
 docker service logs HelloWorld
 ```
 
-ssh ansible@10.24.38.117 -i /mnt/pve/cephfs/.ssh/id_ed25519
+### Bewijs
+- ![Docker Swarm Cluster](./13.DOCKER_SWARM_RUNNING.png)
+- ![Docker Swarm Cluster](./14.DOCKER_SWARM_AUTOMATED.png)
+- [VM Automated Rollout](./AUTOMATED_ROLLOUT_VM.mp4)
+- [Docker Swarm node1](./AUTOMATED_SWARM_ROLLOUT_NODE1.mp4)
+- [Docker Swarm node2](./AUTOMATED_SWARM_ROLLOUT_NODE2.mp4)
+- [Docker Swarm node3](./AUTOMATED_SWARM_ROLLOUT_NODE3.mp4)
