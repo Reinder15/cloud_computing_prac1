@@ -48,7 +48,7 @@ ha_failback: false
 
 # Docker Swarm defaults
 # Select which Proxmox node's VM pair should form a swarm cluster.
-swarm_target_node: node2
+swarm_target_node: node3
 docker_swarm_clusters:
   node1:
     manager: docker-manager-node1

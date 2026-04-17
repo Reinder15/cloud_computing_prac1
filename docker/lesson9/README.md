@@ -74,3 +74,5 @@ docker service ls
 docker service ps HelloWorld
 docker service logs HelloWorld
 ```
+
+ssh ansible@10.24.38.117 -i /mnt/pve/cephfs/.ssh/id_ed25519
