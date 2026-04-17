@@ -15,15 +15,15 @@ docker_swarm_clusters:
     worker: docker-worker-node3
 
 vm_instances:
-  - vmid: 1111
+  - vmid: 1113
     name: docker-manager-node1
-    ip: 10.24.38.121
+    ip: 10.24.38.122
     client_user: docker
     target_node: node1
   
   - vmid: 1112
     name: docker-worker-node1
-    ip: 10.24.38.122
+    ip: 10.24.38.123
     client_user: docker
     target_node: node1
   
