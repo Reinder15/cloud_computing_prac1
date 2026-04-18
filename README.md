@@ -52,11 +52,12 @@ De configuratie is onderverdeeld in:
 
 ## Docker Subdirectory
 
-De `docker/` directory bevat documentatie en voorbeelden voor Docker-containers en -netwerken:
-
-- **COMMANDS.md** - Gebruikte commando's voor installatie en tutorial van docker (pull, run, ps, login, push)
-- **CREATE_SUBNET.md** - Opdracht 2 van het docker gedeelte: uitleg en voorbeelden van het creëren van meerdere subnetten in Docker, inclusief MySQL-voorbeelden
-- **docker/scrn + docker/vids** - Screenshots en video's van de uitgevoerde opdrachten en resultaten
+De `docker/` directory bevat documentatie en voorbeelden voor Docker-containers en -netwerken. De directory is opgedeeld per opdracht, voor (bijna) alle opdrachten is een README aanwezig die dient als leeswijzer voor de betreffende opdracht.
+- [tutorial README](./docker/tutorial/README.md)
+- [lesson9 README](./docker/lesson9/README.md)
+- [lesson10 OUTPUT](./docker/lesson10/DOCKER_NETWORKING_SCRIPT_OUTPUT.png)
+- [opdracht2.2 README](./docker/opdracht2.2/README.md)
+- [opdracht2.3 README](./docker/opdracht2.3/README.md)
 
 
 Gebruikt voor docker tutorial: [Docker Networking Documentation](https://docs.docker.com/engine/install/ubuntu/)
