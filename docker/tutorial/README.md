@@ -7,7 +7,7 @@ https://docs.docker.com/get-started/
 Zie schermafbeeldingen voor bewijs van het doorlopen van de stappen:
 1. ![DOCKER_RUNNING](./1.DOCKER_RUNNING.png)
 
-2. ![DOCKER_RUN_HELLO_WORLD](./2.DOCKER_RUN_HELLO_WORLD.png)
+2. ![DOCKER_RUN_HELLO_WORLD](./2.DOCKER_HELLO_WORLD.png)
 
 3. ![TO_APP_RUNNING](./3.TO_APP_RUNNING.png)
 
