@@ -1,5 +1,27 @@
 ### Geautomatiseerde uitrol van een docker swarm op iedere node
 
+**[Clone VM playbook](ansible/plays/creation/clone_vm.yml)**
+Kloont 6 VM's configureert HA, unieke SSH-keys en voegt toe aan monitoring.
+
+```sh
+ansible-playbook ansible/plays/creation/clone_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+```
+
+**[Setup Docker Swarm playbook](ansible/plays/inventory_management/setup_docker_swarm.yml)**
+Installeert Docker en configureert Docker Swarm-cluster voor potentiële containerisatie van services.
+
+```sh
+ansible-playbook ansible/plays/inventory_management/setup_docker_swarm.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
+```
+
+**Test Swarm**
+```sh
+docker node ls
+docker service ls
+docker service ps HelloWorld
+docker service logs HelloWorld
+```
+
 **Config in main.yml**
 ```
 swarm_target_node: node1
@@ -52,31 +74,8 @@ vm_instances:
     target_node: node3
 ```
 
-**Clone VM** 
-Kloont 6 VM's configureert HA, unieke SSH-keys en voegt toe aan monitoring.
-
-```sh
-ansible-playbook ansible/plays/creation/clone_vm.yml --user=ansible --ask-vault-pass --private-key /mnt/pve/cephfs/.ssh/id_ed25519
-```
-
-**Setup Docker Swarm**
-Installeert Docker en configureert Docker Swarm-cluster voor potentiële containerisatie van services.
-
-```sh
-ansible-playbook ansible/plays/inventory_management/setup_docker_swarm.yml --user=ansible --private-key /mnt/pve/cephfs/.ssh/id_ed25519
-```
-
-**Working Swarm Commands**
-```sh
-docker node ls
-docker service ls
-docker service ps HelloWorld
-docker service logs HelloWorld
-```
 
 ### Bewijs
-- ![Docker Swarm Cluster](./13.DOCKER_SWARM_RUNNING.png)
-- ![Docker Swarm Cluster](./14.DOCKER_SWARM_AUTOMATED.png)
 - [VM Automated Rollout](./AUTOMATED_ROLLOUT_VM.mp4)
 - [Docker Swarm node1](./AUTOMATED_SWARM_ROLLOUT_NODE1.mp4)
 - [Docker Swarm node2](./AUTOMATED_SWARM_ROLLOUT_NODE2.mp4)
